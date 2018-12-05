@@ -1,7 +1,7 @@
 --HINT DISTRIBUTE_ON_KEY(meta_agent_concept_id)
 create table @resultsDatabaseSchema.meta_agent
 (
-  meta_agent_id               varchar(250) not null,
+  meta_agent_id               integer not null,
   meta_agent_concept_id       integer not null,
   agent_first_name            varchar(250) null,
   agent_last_name             varchar(250) null,
