@@ -1,5 +1,6 @@
 library(shiny)
 library(shinyWidgets)
+library(plotly)
 library(DT)
 
 ui <- fluidPage(
@@ -142,9 +143,19 @@ ui <- fluidPage(
                        tabsetPanel(type = "tabs",
                                    tabPanel("Concept", 
                                             h3("Concept"),
-                                            helpText("View metadata about a concept")),
-                                   tabPanel("Cohort Definition", 
-                                            h3("Cohort Definition"),
+                                            helpText("View metadata about a concept"),
+                                            
+                                            selectInput(inputId = "domainId", label = "Domain",
+                                                        choices = c("Procedure" = 602, "Device" = 2101, "Drug" = 702, "Measurement" = 1801, "Observation" = 802)), 
+                                            
+                                            selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px",
+                                                        choices = c()), #c("Biopsy of lymphatic structure" = 2002290)),
+                                            
+                                            plotlyOutput(outputId = "conceptPlot")
+                                            
+                                            ),
+                                   tabPanel("Heel Results", 
+                                            h3("Heel Results"),
                                             helpText("View metadata about elements of a cohort definition"))
                        )
               )

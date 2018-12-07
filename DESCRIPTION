@@ -15,7 +15,8 @@ Depends:
 Imports:
     dplyr,
     rjson,
-    ParallelLogger
+    ParallelLogger,
+    plotly
 Suggests:
     testthat,
     R.utils,

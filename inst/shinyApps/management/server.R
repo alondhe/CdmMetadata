@@ -20,6 +20,7 @@ shinyServer(function(input, output, session) {
                                                                   password = Sys.getenv("password"), 
                                                                   server = Sys.getenv("server"), 
                                                                   port = Sys.getenv("port"))
+  
 
   # Text Inputs ------------------------------------------------------
   
@@ -159,6 +160,39 @@ shinyServer(function(input, output, session) {
   
   # query tables -----------------------------------------------------------------
   
+  .getConceptPrevalance <- function() {
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getPrevalence.sql", 
+                                             packageName = "CdmMetadata", 
+                                             dbms = connectionDetails$dbms,
+                                             resultsDatabaseSchema = resultsDatabaseSchema,
+                                             conceptId = input$conceptId,
+                                             analysisId = input$domainId)
+    
+    df <- DatabaseConnector::querySql(connection = connection, sql = sql)
+    if (nrow(df) > 0) {
+      df$STRATUM_2 <- as.Date(paste0(df$STRATUM_2, '01'), format='%Y%m%d')  
+    }
+    
+    df
+  }
+  
+  .getChartMeta <- function() {
+    
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getChartEntityActivity.sql", 
+                                             packageName = "CdmMetadata", 
+                                             dbms = connectionDetails$dbms,
+                                             resultsDatabaseSchema = resultsDatabaseSchema,
+                                             entityConceptId = input$conceptId)
+    
+    DatabaseConnector::querySql(connection = connection, sql = sql)
+  }
+  
   .getAgents <- function() {
 
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
@@ -248,7 +282,44 @@ shinyServer(function(input, output, session) {
     df
   }
   
+  
   # output rendering -----------------------------------------------------------
+  
+  observeEvent(input$domainId, {
+
+    selected <- achillesConcepts[achillesConcepts$ANALYSIS_ID == input$domainId,]
+    choices <- setNames(as.integer(selected$CONCEPT_ID), paste(selected$CONCEPT_ID, as.character(selected$CONCEPT_NAME), sep = " - "))
+    updateSelectInput(session = session, inputId = "conceptId", choices = choices)
+  })
+  
+  
+  output$conceptPlot <- renderPlotly({
+    
+    df <- .getConceptPrevalance()
+    
+    meta <- .getChartMeta()
+    
+    if (nrow(meta) > 0) {
+      chartDate <- lubridate::floor_date(meta$ACTIVITY_START_DATE, "month")
+      a <- list(
+        x = chartDate,
+        y = df$COUNT_VALUE[df$STRATUM_2 == chartDate],
+        text = meta$VALUE_AS_STRING,
+        xref = "x",
+        yref = "y",
+        showarrow = TRUE,
+        arrowhead = 7
+      )
+      
+      plot_ly(df, x = ~STRATUM_2, y = ~COUNT_VALUE, type = "scatter", mode = "lines") %>%
+        layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events")) %>%
+        layout(annotations = a)  
+    } else {
+      plot_ly(df, x = ~STRATUM_2, y = ~COUNT_VALUE, type = "scatter", mode = "lines") %>%
+        layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events"))
+    }
+    
+  })
   
   output$selectedAgentEA <- renderText({
     .getSelectedAgentText()  
@@ -468,7 +539,7 @@ shinyServer(function(input, output, session) {
       
       showNotification(sprintf("New entity/activity added"))
       
-      .clearTextInputs(entityActivityTextInputs, "btnClearEA")
+      .clearTextInputs(entityActivityTextInputs, "btnSubmitEA")
     }
   }
   
