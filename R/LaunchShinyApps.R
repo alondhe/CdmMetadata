@@ -55,12 +55,15 @@ launchMaintenanceApp <- function(connectionDetails,
   Sys.setenv(sourceName = .getSourceName(connectionDetails, cdmDatabaseSchema),
              dbms = connectionDetails$dbms,
              server = connectionDetails$server,
-             user = connectionDetails$user, 
-             password = connectionDetails$password,
              port = connectionDetails$port,
              cdmDatabaseSchema = cdmDatabaseSchema,
              resultsDatabaseSchema = resultsDatabaseSchema,
              vocabDatabaseSchema = vocabDatabaseSchema)
+  
+  if (!is.null(connectionDetails$user)) {
+    Sys.setenv(user = connectionDetails$user, 
+               password = connectionDetails$password)
+  }
   
   appDir <- system.file("shinyApps", "management", package = "CdmMetadata")
   shiny::runApp(appDir, display.mode = "normal", launch.browser = TRUE)

@@ -34,9 +34,6 @@ createTables <- function(connectionDetails,
                                          appenders = appenders)
   ParallelLogger::registerLogger(logger) 
   
-  connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
-  on.exit()
-  
   sqlFiles <- list.files(path = file.path(system.file(package = "CdmMetadata"), 
                                           "sql", "sql_server", "createTables"), 
                          recursive = TRUE, 
@@ -50,6 +47,7 @@ createTables <- function(connectionDetails,
                                              packageName = "CdmMetadata", 
                                              dbms = connectionDetails$dbms,
                                              resultsDatabaseSchema = resultsDatabaseSchema)
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
     exists <- tryCatch({
       existsSql <- SqlRender::renderSql("select top 1 * from @resultsDatabaseSchema.@table;",
                                         resultsDatabaseSchema = resultsDatabaseSchema,
@@ -57,15 +55,20 @@ createTables <- function(connectionDetails,
       existsSql <- SqlRender::translateSql(sql = existsSql, targetDialect = connectionDetails$dbms)$sql
       
       dummy <- DatabaseConnector::querySql(connection = connection, sql = existsSql)
+      
       ParallelLogger::logInfo(sprintf("%s table was found, will skip it.", basename(sqlFile)))
       TRUE
     }, error = function(e) {
       ParallelLogger::logInfo(sprintf("%s table not found, will create it.", basename(sqlFile)))
       FALSE
+    }, finally = function(f) {
+      DatabaseConnector::disconnect(connection = connection)
     })
     
     if (!exists) {
+      connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
       DatabaseConnector::executeSql(connection = connection, sql = sql)
+      DatabaseConnector::disconnect(connection = connection)
     }
   }
 }

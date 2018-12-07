@@ -2,11 +2,17 @@ resultsDatabaseSchema <- Sys.getenv("resultsDatabaseSchema")
 cdmDatabaseSchema <- Sys.getenv("cdmDatabaseSchema")
 vocabDatabaseSchema <- Sys.getenv("vocabDatabaseSchema")
 
-connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = Sys.getenv("dbms"),
-                                                                user = Sys.getenv("user"),
-                                                                password = Sys.getenv("password"),
-                                                                server = Sys.getenv("server"),
-                                                                port = Sys.getenv("port"))
+if (Sys.getenv("user") == "") {
+  connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = Sys.getenv("dbms"),
+                                                                  server = Sys.getenv("server"),
+                                                                  port = Sys.getenv("port"))
+} else {
+  connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = Sys.getenv("dbms"),
+                                                                  user = Sys.getenv("user"),
+                                                                  password = Sys.getenv("password"),
+                                                                  server = Sys.getenv("server"),
+                                                                  port = Sys.getenv("port"))
+}
 
 connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
 
