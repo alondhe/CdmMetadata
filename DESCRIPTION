@@ -23,6 +23,7 @@ Suggests:
     shiny,
     DT,
     shinydashboard,
+    shinyWidgets,
     magrittr,
     tidyr,
     knitr, 
@@ -32,5 +33,5 @@ Remotes:
     OHDSI/OhdsiRTools
 License: Apache License
 Roxygen: list(wrap = FALSE)
-RoxygenNote: 6.1.0
+RoxygenNote: 6.1.1
 Encoding: UTF-8

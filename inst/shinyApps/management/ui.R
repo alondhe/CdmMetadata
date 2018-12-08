@@ -56,6 +56,16 @@ ui <- fluidPage(
                                                        textInput(inputId = "entityAsString", label = "Entity As String", width = "200px"), 
                                                        textInput(inputId = "entityIdentifier", label = "Entity Identifer", width = "200px"),
                                                        textInput(inputId = "activityConceptId", label = "Activity Concept Id", width = "200px", value = 0), 
+                                                       # selectInput(inputId = "activityConceptClass", label = "Activity Concept Class", width = "200px",
+                                                       #             choices = c("Data Quality",
+                                                       #                         "Provenance",
+                                                       #                         "ETL/Design")),
+                                                       # selectInput(inputId = "activityConceptId2", label = "Activity", width = "200px", 
+                                                       #             choices = c("Conformance" = 900000112,
+                                                       #                         "Completeness" = 900000113,
+                                                       #                         "Plausibility" = 900000114	,
+                                                       #                         "Temporal Event" = 900000115,
+                                                       #                         "Value" = 900000116)),
                                                        textInput(inputId = "activityTypeConceptId", label = "Activity Type Concept Id", width = "200px", value = 0),
                                                        textInput(inputId = "activityAsString", label = "Activity As String", width = "200px"),
                                                        dateRangeInput(inputId = "activityDates", label = "Activity Date Start and End", width = "200px"),
@@ -145,12 +155,14 @@ ui <- fluidPage(
                                             h3("Concept"),
                                             helpText("View metadata about a concept"),
                                             
+                                            checkboxInput(inputId = "toggleConcepts", label = "See only concepts with metadata", value = FALSE),
                                             selectInput(inputId = "domainId", label = "Domain",
-                                                        choices = c("Procedure" = 602, "Device" = 2101, "Drug" = 702, "Measurement" = 1801, "Observation" = 802)), 
+                                                        choices = c("Condition" = 402, 
+                                                                    "Procedure" = 602, "Device" = 2101, "Drug" = 702, "Measurement" = 1801, "Observation" = 802)), 
                                             
                                             selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px",
                                                         choices = c()), #c("Biopsy of lymphatic structure" = 2002290)),
-                                            
+                                            verbatimTextOutput(outputId = "selectedConcept", placeholder = TRUE),
                                             plotlyOutput(outputId = "conceptPlot")
                                             
                                             ),

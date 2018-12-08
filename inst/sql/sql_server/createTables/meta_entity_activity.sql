@@ -1,4 +1,3 @@
---HINT DISTRIBUTE_ON_KEY(activity_concept_id)
 create table @resultsDatabaseSchema.meta_entity_activity
 (
   meta_entity_activity_id       integer not null,

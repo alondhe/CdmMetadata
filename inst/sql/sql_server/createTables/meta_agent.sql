@@ -1,4 +1,4 @@
---HINT DISTRIBUTE_ON_KEY(meta_agent_concept_id)
+
 create table @resultsDatabaseSchema.meta_agent
 (
   meta_agent_id               integer not null,

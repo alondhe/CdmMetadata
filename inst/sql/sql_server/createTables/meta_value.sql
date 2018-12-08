@@ -1,4 +1,4 @@
---HINT DISTRIBUTE_ON_KEY(value_concept_id)
+
 create table @resultsDatabaseSchema.meta_value
 (
   meta_value_id                     integer not null,

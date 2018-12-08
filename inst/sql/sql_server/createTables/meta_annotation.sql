@@ -1,4 +1,4 @@
---HINT DISTRIBUTE_ON_KEY(annotation_concept_id)
+
 create table @resultsDatabaseSchema.meta_annotation
 (
   meta_annotation_id               integer not null,

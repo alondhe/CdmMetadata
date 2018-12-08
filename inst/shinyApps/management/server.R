@@ -215,19 +215,24 @@ shinyServer(function(input, output, session) {
     DatabaseConnector::querySql(connection = connection, sql = sql)
   }
   
-  .getEntityActivities <- function() {
+  .getEntityActivities <- function(subset = TRUE) {
     
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
-    row_count <- input$dtAgent_rows_selected
-    metaAgentId <- .getAgents()[row_count, ]$META_AGENT_ID
+    if (subset) {
+      row_count <- input$dtAgent_rows_selected
+      metaAgentId <- .getAgents()[row_count, ]$META_AGENT_ID
+    } else {
+      metaAgentId <- NA
+    }
     
     df <- tryCatch({
       sql <- SqlRender::renderSql("select * from @resultsDatabaseSchema.meta_entity_activity
-                                where meta_agent_id = @metaAgentId
+                                where 1=1 {@subset}?{and meta_agent_id = @metaAgentId}
                                 order by meta_entity_activity_id;",
                                   resultsDatabaseSchema = resultsDatabaseSchema,
+                                  subset = subset,
                                   metaAgentId = metaAgentId)$sql
       sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
       DatabaseConnector::querySql(connection = connection, sql = sql)  
@@ -291,13 +296,33 @@ shinyServer(function(input, output, session) {
   
   # output rendering -----------------------------------------------------------
   
+  observeEvent(input$toggleConcepts, {
+    
+    if (input$toggleConcepts) {
+      selected <- achillesConcepts[achillesConcepts$ANALYSIS_ID == input$domainId,]
+      
+      meta <- .getEntityActivities(FALSE)
+      
+      meta <- meta$ENTITY_CONCEPT_ID[meta$ACTIVITY_AS_STRING == "Temporal Event"]
+      selected <- selected[selected$CONCEPT_ID %in% meta,]
+      
+      choices <- setNames(as.integer(selected$CONCEPT_ID), paste(selected$CONCEPT_ID, as.character(selected$CONCEPT_NAME), sep = " - "))
+      
+      updateSelectInput(session = session, inputId = "conceptId", choices = choices)
+    }
+  })
+  
   observeEvent(input$domainId, {
 
     selected <- achillesConcepts[achillesConcepts$ANALYSIS_ID == input$domainId,]
+
     choices <- setNames(as.integer(selected$CONCEPT_ID), paste(selected$CONCEPT_ID, as.character(selected$CONCEPT_NAME), sep = " - "))
     updateSelectInput(session = session, inputId = "conceptId", choices = choices)
   })
   
+  output$selectedConcept <- renderText({
+    input$conceptId
+  })
   
   output$conceptPlot <- renderPlotly({
     
@@ -317,7 +342,7 @@ shinyServer(function(input, output, session) {
         arrowhead = 7
       )
       
-      plot_ly(df, x = ~STRATUM_2, y = ~COUNT_VALUE, type = "scatter", mode = "lines") %>%
+      plot_ly(df, x = ~STRATUM_2, y = ~COUNT_VALUE, type = "scatter", mode = "lines", hoverinfo = 'text') %>%
         layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events")) %>%
         layout(annotations = a)  
     } else {
@@ -628,16 +653,15 @@ shinyServer(function(input, output, session) {
                                              resultsDatabaseSchema = resultsDatabaseSchema,
                                              entityConceptId = input$entityConceptId,
                                              entityAsString = input$entityAsString,
-                                             entityIdentifier = input$entityIdentifier,
-                                             activityConceptId = input$activityConceptId,
+                                             entityIdentifier = ifelse(input$entityIdentifier == "", "NULL", as.integer(input$entityIdentifier)),
+                                             #activityConceptId = input$activityConceptId,
                                              activityTypeConceptId = input$activityTypeConceptId,
                                              activityAsString = input$activityAsString,
                                              activityStartDate = input$activityDates[1],
                                              activityEndDate = input$activityDates[2],
                                              securityConceptId = input$securityConceptIdEA,
                                              metaEntityActivityId = .getEntityActivities()[row_count,]$META_ENTITY_ACTIVITY_ID)
-    
-    
+    cat(sql)
     DatabaseConnector::executeSql(connection = connection, sql = sql)
     
     showNotification(sprintf("Entity/Activity record updated"))
