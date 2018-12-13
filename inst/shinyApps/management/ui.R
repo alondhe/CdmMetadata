@@ -164,12 +164,22 @@ ui <- fluidPage(
                                                         choices = c()), #c("Biopsy of lymphatic structure" = 2002290)),
                                             verbatimTextOutput(outputId = "selectedConcept", placeholder = TRUE),
                                             plotlyOutput(outputId = "conceptPlot")
-                                            
                                             ),
                                    tabPanel("Heel Results", 
                                             h3("Heel Results"),
-                                            helpText("View metadata about elements of a cohort definition"))
-                       )
+                                            helpText("View metadata about elements of a cohort definition"),
+                                            sidebarLayout(
+                                              sidebarPanel(
+                                                selectInput(inputId = "heelStatus", label = "Heel Status", choices = c("Needs Review", "Non-issue", "Issue"), width = "200px"),
+                                                textAreaInput(inputId = "heelAnnotation", label = "Heel Annotation", 
+                                                              rows = 4, resize = "none", width = "200px")
+                                              ),
+                                              mainPanel(
+                                                DT::dataTableOutput("dtHeelResults")    
+                                              )
+                                            )
+                                          )
+                                   )
               )
   )
 )

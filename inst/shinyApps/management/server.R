@@ -215,12 +215,12 @@ shinyServer(function(input, output, session) {
     DatabaseConnector::querySql(connection = connection, sql = sql)
   }
   
-  .getEntityActivities <- function(subset = TRUE) {
+  .getEntityActivities <- function(subsetByAgent = TRUE) {
     
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
-    if (subset) {
+    if (subsetByAgent) {
       row_count <- input$dtAgent_rows_selected
       metaAgentId <- .getAgents()[row_count, ]$META_AGENT_ID
     } else {
@@ -229,10 +229,10 @@ shinyServer(function(input, output, session) {
     
     df <- tryCatch({
       sql <- SqlRender::renderSql("select * from @resultsDatabaseSchema.meta_entity_activity
-                                where 1=1 {@subset}?{and meta_agent_id = @metaAgentId}
+                                where 1=1 {@subsetByAgent}?{and meta_agent_id = @metaAgentId}
                                 order by meta_entity_activity_id;",
                                   resultsDatabaseSchema = resultsDatabaseSchema,
-                                  subset = subset,
+                                  subsetByAgent = subsetByAgent,
                                   metaAgentId = metaAgentId)$sql
       sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
       DatabaseConnector::querySql(connection = connection, sql = sql)  
@@ -295,6 +295,48 @@ shinyServer(function(input, output, session) {
   
   
   # output rendering -----------------------------------------------------------
+  
+  output$dtHeelResults <- renderDataTable({
+    
+    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "heelResults/getHeels.sql", 
+                                             packageName = "CdmMetadata", 
+                                             dbms = connectionDetails$dbms,
+                                             resultsDatabaseSchema = resultsDatabaseSchema)
+    
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    df <- DatabaseConnector::querySql(connection = connection, sql = sql) %>%
+      dplyr::select(ANALYSIS_ID,
+                    RULE_ID,
+                    ACHILLES_HEEL_WARNING,
+                    RECORD_COUNT)
+    
+    
+    df2 <- .getEntityActivities(FALSE)
+    df2 <- df2[df2$ENTITY_AS_STRING == "Achilles Heel"]
+    
+    colnames <- c("Analysis Id", "Rule Id", "Achilles Heel Warning", "Record Count")
+    
+    options <- list(pageLength = 10000,
+                    searching = TRUE,
+                    lengthChange = FALSE,
+                    ordering = TRUE,
+                    paging = FALSE,
+                    scrollY = '75vh')
+    selection <- list(mode = "single", target = "row")
+    
+    table <- datatable(df,
+                       options = options,
+                       selection = "single",
+                       rownames = FALSE, colnames = colnames,
+                       class = "stripe nowrap compact", extensions = c("Responsive"))
+    table <- formatStyle(table = table,
+                         columns = ncol(df),
+                         target = "row")
+    table
+    
+  })
   
   observeEvent(input$toggleConcepts, {
     
