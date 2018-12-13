@@ -1,21 +1,3 @@
-.getSourceName <- function(connectionDetails,
-                           cdmDatabaseSchema) {
-  sql <- SqlRender::renderSql(sql = "select cdm_source_name from @cdmDatabaseSchema.cdm_source",
-                              cdmDatabaseSchema = cdmDatabaseSchema)$sql
-  sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
-  connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
-  sourceName <- tryCatch({
-    s <- DatabaseConnector::querySql(connection = connection, sql = sql)
-    s[1,]
-  }, error = function (e) {
-    ""
-  }, finally = {
-    DatabaseConnector::disconnect(connection = connection)
-    rm(connection)
-  })
-  sourceName
-}
-
 
 .checkShinyDeps <- function() {
   dependencies <- c("shiny",
@@ -37,34 +19,30 @@
 }
 
 
-#' Launches the Maintenance Shiny App
+#' Launches the Shiny Metadata App
 #' 
-#' @param connectionDetails
-#' @param cdmDatabaseSchema
-#' @param resultsDatabaseSchema
-#' @param vocabDatabaseSchema
+#' @param jsonPath               The path to the Sources JSON file
 #' 
 #' @export
-launchMaintenanceApp <- function(connectionDetails,
-                                 cdmDatabaseSchema,
-                                 resultsDatabaseSchema,
-                                 vocabDatabaseSchema = cdmDatabaseSchema) {
+launchMetadataApp <- function(jsonPath) {
 
   .checkShinyDeps()
+  
+  Sys.setenv(jsonPath = jsonPath)
  
-  Sys.setenv(sourceName = .getSourceName(connectionDetails, cdmDatabaseSchema),
-             dbms = connectionDetails$dbms,
-             server = connectionDetails$server,
-             port = connectionDetails$port,
-             cdmDatabaseSchema = cdmDatabaseSchema,
-             resultsDatabaseSchema = resultsDatabaseSchema,
-             vocabDatabaseSchema = vocabDatabaseSchema)
+  # Sys.setenv(sourceName = .getSourceName(connectionDetails, cdmDatabaseSchema),
+  #            dbms = connectionDetails$dbms,
+  #            server = connectionDetails$server,
+  #            port = connectionDetails$port,
+  #            cdmDatabaseSchema = cdmDatabaseSchema,
+  #            resultsDatabaseSchema = resultsDatabaseSchema,
+  #            vocabDatabaseSchema = vocabDatabaseSchema)
   
-  if (!is.null(connectionDetails$user)) {
-    Sys.setenv(user = connectionDetails$user, 
-               password = connectionDetails$password)
-  }
+  # if (!is.null(connectionDetails$user)) {
+  #   Sys.setenv(user = connectionDetails$user, 
+  #              password = connectionDetails$password)
+  # }
   
-  appDir <- system.file("shinyApps", "management", package = "CdmMetadata")
+  appDir <- system.file("shinyApps", package = "CdmMetadata")
   shiny::runApp(appDir, display.mode = "normal", launch.browser = TRUE)
 }

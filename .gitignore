@@ -38,3 +38,7 @@ rsconnect/
 
 errorReport.txt
 output/
+
+*.log
+
+extras/sources.json
