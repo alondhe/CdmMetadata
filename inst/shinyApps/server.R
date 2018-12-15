@@ -45,7 +45,7 @@ shinyServer(function(input, output, session) {
         paste0(v, suffix)
       })
   }
-  
+
   agentChoices <- c("Human" = "1000", "Algorithm" = "2000")
 
   .clearTextInputs <- function(textInputNames, submitButtonId) {
@@ -65,7 +65,7 @@ shinyServer(function(input, output, session) {
     sql <- SqlRender::renderSql(sql = "select max(@fieldName) as MAX_ID from @resultsDatabaseSchema.@tableName;",
                                 fieldName = fieldName,
                                 tableName = tableName,
-                                resultsDatabaseSchema = resultsDatabaseSchema)$sql
+                                resultsDatabaseSchema = resultsDatabaseSchema())$sql
     sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
     
     result <- DatabaseConnector::querySql(connection = connection, sql = sql)
@@ -129,7 +129,6 @@ shinyServer(function(input, output, session) {
                     ENTITY_IDENTIFIER == input$entityIdentifier,
                     ACTIVITY_START_DATE == input$activityDates[1],
                     ACTIVITY_END_DATE == input$activityDates[2])
-    
     nrow(df) > 0
   }
   
@@ -148,6 +147,18 @@ shinyServer(function(input, output, session) {
   }
   
   # query tables -----------------------------------------------------------------
+  
+  .getHeelResults <- function() {
+    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "heelResults/getHeels.sql", 
+                                             packageName = "CdmMetadata", 
+                                             dbms = connectionDetails()$dbms,
+                                             resultsDatabaseSchema = resultsDatabaseSchema())
+    
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    DatabaseConnector::querySql(connection = connection, sql = sql)
+  }
   
   .getConceptPrevalance <- function() {
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
@@ -182,12 +193,13 @@ shinyServer(function(input, output, session) {
     DatabaseConnector::querySql(connection = connection, sql = sql)
   }
   
-  .getAgents <- function() {
+  .getAgents <- function(metaAgentConceptId = NULL) {
 
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
     on.exit(DatabaseConnector::disconnect(connection = connection))
-    
-    metaAgentConceptId <- input$agentConceptId
+    if (is.null(metaAgentConceptId)) {
+      metaAgentConceptId <- input$agentConceptId
+    }
     
     sql <- SqlRender::renderSql("select * from @resultsDatabaseSchema.meta_agent
                                 where meta_agent_concept_id = @metaAgentConceptId
@@ -226,13 +238,15 @@ shinyServer(function(input, output, session) {
     df
   }
   
-  .getAnnotations <- function() {
+  .getAnnotations <- function(metaEntityActivityId = NULL) {
     
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
     row_count <- input$dtEntityActivity_rows_selected
-    metaEntityActivityId <- .getEntityActivities()[row_count, ]$META_ENTITY_ACTIVITY_ID
+    if (is.null(metaEntityActivityId)) {
+      metaEntityActivityId <- .getEntityActivities()[row_count, ]$META_ENTITY_ACTIVITY_ID
+    }
     
     df <- tryCatch({
       sql <- SqlRender::renderSql(sql = "select * from @resultsDatabaseSchema.meta_annotation 
@@ -249,13 +263,15 @@ shinyServer(function(input, output, session) {
     df
   }
   
-  .getValues <- function(metaAnnotationId = NULL) {
+  .getValues <- function(metaEntityActivityId = NULL, metaAnnotationId = NULL) {
     
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
-    row_count <- input$dtEntityActivity_rows_selected
-    metaEntityActivityId <- .getEntityActivities()[row_count, ]$META_ENTITY_ACTIVITY_ID
+    if (is.null(metaEntityActivityId)) {
+      row_count <- input$dtEntityActivity_rows_selected
+      metaEntityActivityId <- .getEntityActivities()[row_count, ]$META_ENTITY_ACTIVITY_ID
+    }
     
     df <- tryCatch({
       sql <- SqlRender::renderSql(sql = "select * from @resultsDatabaseSchema.meta_value 
@@ -329,29 +345,26 @@ shinyServer(function(input, output, session) {
   })
   
   # input rendering ------------------------------------------------------------
- 
-
   
   # output rendering -----------------------------------------------------------
   output$dtHeelResults <- renderDataTable(expr = {
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "heelResults/getHeels.sql", 
-                                             packageName = "CdmMetadata", 
-                                             dbms = connectionDetails()$dbms,
-                                             resultsDatabaseSchema = resultsDatabaseSchema())
     
-    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
-    on.exit(DatabaseConnector::disconnect(connection = connection))
+    input$btnSubmitHeel
+    input$btnDeleteHeel
     
-    df <- DatabaseConnector::querySql(connection = connection, sql = sql) %>%
-      dplyr::select(ANALYSIS_ID,
-                    RULE_ID,
-                    ACHILLES_HEEL_WARNING,
-                    RECORD_COUNT,
-                    VALUE_CONCEPT_ID,
-                    VALUE_AS_STRING)
+    df <- .getHeelResults()
+    # df <- separate(data = df, col = ACHILLES_HEEL_WARNING, 
+    #                into = c("WARNING_TYPE", "ACHILLES_HEEL_WARNING"), sep = ":", extra = "merge")
     
-    colnames <- c("Analysis Id", "Rule Id", "Achilles Heel Warning", "Record Count", "Heel Status", "Heel Annotation")
-
+    df <- dplyr::arrange(df, ANALYSIS_ID) %>%
+      dplyr::select(`Analysis Id` = ANALYSIS_ID,
+                    `Rule Id` = RULE_ID,
+                    #`Warning Type` = WARNING_TYPE,
+                    `Message` = ACHILLES_HEEL_WARNING,
+                    `Record Count` = RECORD_COUNT,
+                    `Heel Status` = ANNOTATION_AS_STRING,
+                    `Heel Annotation` = VALUE_AS_STRING)
+    
     options <- list(pageLength = 10000,
                     searching = TRUE,
                     lengthChange = FALSE,
@@ -363,26 +376,15 @@ shinyServer(function(input, output, session) {
     table <- datatable(df,
                        options = options,
                        selection = "single",
-                       rownames = FALSE, colnames = colnames,
-                       class = "stripe nowrap compact", extensions = c("Responsive"))
-    table <- formatStyle(table = table,
-                         columns = ncol(df),
-                         target = "row")
+                       rownames = FALSE, 
+                       class = "stripe nowrap compact", extensions = c("Responsive")) %>%
+      formatStyle("Heel Status", #"Warning Type",
+                  target = "row",
+                  backgroundColor = styleEqual(c("Non-issue", "Needs Review", "Issue"),
+                                               c("#e8f0ff", "#fffedb", "#ffdbdb")))
+    
     table
   })
-  
-  heelResultsProxy <- dataTableProxy("dtHeelResults")
-  
-  # observeEvent(input$dtHeelResuts_cell_edit, {
-  #   info = input$x1_cell_edit
-  #   str(info)
-  #   i = info$row
-  #   j = info$col
-  #   v = info$value
-  #   x[i, j] <<- DT::coerceValue(v, x[i, j])
-  #   replaceData(proxy, x, resetPaging = FALSE)  # important
-  # })
-  
 
   observeEvent(input$toggleConcepts, {
     
@@ -453,6 +455,7 @@ shinyServer(function(input, output, session) {
   })
   
   output$dtAgent <- renderDataTable({
+    input$selectAgent
     input$btnSubmitAgent
     input$btnDeleteAgent
     
@@ -596,9 +599,144 @@ shinyServer(function(input, output, session) {
   
   # crud operations -----------------------------------------------------------
   
+  .addHeelAnnotation <- function() {
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    row_count <- input$dtHeelResults_rows_selected
+    annotationAsString <- .getHeelResults()[row_count,]$ANNOTATION_AS_STRING
+
+
+    metaEntityActivityId <- .getMaxId(tableName = "meta_entity_activity",
+                                      fieldName = "meta_entity_activity_id") + 1
+    
+    entityActivity <- data.frame(
+      meta_entity_activity_id = metaEntityActivityId,
+      meta_agent_id = as.integer(input$selectAgent),
+      entity_concept_id = 0,
+      entity_as_string = "",
+      entity_identifier = NA,
+      activity_concept_id = 0,
+      activity_type_concept_id = 0,
+      activity_as_string = .getHeelResults()[row_count,]$ACHILLES_HEEL_WARNING,
+      activity_start_date = NA,
+      activity_end_date = NA,
+      security_concept_id = 0
+    )
+    
+    # matches <- .getEntityActivities(FALSE) %>%
+    #   dplyr::filter(ACTIVITY_AS_STRING == .getHeelResults()[row_count,]$ACHILLES_HEEL_WARNING)
+    # 
+    # if (nrow(matches) == 0) {
+    DatabaseConnector::insertTable(connection = connection, 
+                                   tableName = sprintf("%s.meta_entity_activity", resultsDatabaseSchema()), 
+                                   data = entityActivity, 
+                                   dropTableIfExists = F, createTable = F)
+    
+    metaAnnotationId <- .getMaxId(tableName = "meta_annotation",
+                                    fieldName = "meta_annotation_id") + 1
+    
+    annotation <- data.frame(
+      meta_annotation_id = metaAnnotationId,
+      meta_agent_id = as.integer(input$selectAgent),
+      meta_entity_activity_id = metaEntityActivityId,
+      annotation_concept_id = 0,
+      annotation_as_string = input$heelStatus,
+      annotation_type_concept_id = 0,
+      security_concept_id = 0
+    )
+    
+    DatabaseConnector::insertTable(connection = connection, 
+                                   tableName = sprintf("%s.meta_annotation", resultsDatabaseSchema()), 
+                                   data = annotation, 
+                                   dropTableIfExists = F, createTable = F)
+    
+    metaValueId <- .getMaxId(tableName = "meta_value",
+                             fieldName = "meta_value_id") + 1
+
+    value <- data.frame(
+      meta_value_id = metaValueId,
+      value_ordinal = 1, 
+      meta_entity_activity_id = metaEntityActivityId,
+      meta_annotation_id = metaAnnotationId,
+      value_concept_id = 0,
+      value_type_concept_id = 0,
+      value_as_string = input$heelAnnotation,
+      value_as_number = NA,
+      operator_concept_id = 0
+    )
+    
+    DatabaseConnector::insertTable(connection = connection, 
+                                   tableName = sprintf("%s.meta_value", resultsDatabaseSchema()), 
+                                   data = value, 
+                                   dropTableIfExists = F, createTable = F)
+    
+    showNotification(sprintf("New Heel Annotation added"))
+      #}
+    #}
+  }
+  
+  .updateHeelAnnotation <- function() {
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    row_count <- input$dtHeelResults_rows_selected
+    activityAsString <- .getHeelResults()[row_count,]$ACHILLES_HEEL_WARNING
+    annotationAsString <- .getHeelResults()[row_count,]$ANNOTATION_AS_STRING
+    
+    metaEntityActivityId <- .getEntityActivities(subsetByAgent = FALSE) %>%
+      dplyr::filter(ACTIVITY_AS_STRING == activityAsString)
+    
+    metaAnnotationId <- .getAnnotations(metaEntityActivityId = metaEntityActivityId)$META_ANNOTATION_ID
+    
+    metaValueId <- .getValues(metaEntityActivityId = metaEntityActivityId, 
+                              metaAnnotationId = metaAnnotationId)$META_VALUE_ID
+    
+    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "heelResults/updateHeel.sql",
+                                             dbms = connectionDetails()$dbms, 
+                                             packageName = "CdmMetadata",
+                                             resultsDatabaseSchema = resultsDatabaseSchema(),
+                                             annotationAsString = annotationAsString,
+                                             metaAnnotationId = metaAnnotationId,
+                                             metaValueId = metaValueId,
+                                             valueAsString = input$heelAnnotation)
+    DatabaseConnector::executeSql(connection = connection, sql = sql)
+    
+    showNotification("Heel Annotation Updated")
+  }
+  
+  .deleteHeelAnnotation <- function() {
+    
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    row_count <- input$dtHeelResults_rows_selected
+    activityAsString <- .getHeelResults()[row_count,]$ACHILLES_HEEL_WARNING
+    
+    metaEntityActivityId <- (.getEntityActivities(subsetByAgent = FALSE) %>%
+      dplyr::filter(ACTIVITY_AS_STRING == activityAsString))$META_ENTITY_ACTIVITY_ID
+    
+    metaAnnotationId <- (.getAnnotations(metaEntityActivityId = metaEntityActivityId))$META_ANNOTATION_ID
+    
+    metaValueId <- (.getValues(metaEntityActivityId = metaEntityActivityId,
+                               metaAnnotationId = metaAnnotationId))$META_VALUE_ID
+    
+    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "heelResults/deleteHeel.sql", 
+                                             packageName = "CdmMetadata", 
+                                             dbms = connectionDetails()$dbms,
+                                             resultsDatabaseSchema = resultsDatabaseSchema(),
+                                             metaEntityActivityId = metaEntityActivityId,
+                                             metaAnnotationId = metaAnnotationId,
+                                             metaValueId = metaValueId)
+    
+    DatabaseConnector::executeSql(connection = connection, sql = sql)
+    
+    showNotification("Heel Annotation Removed")
+  }
+  
   .addAgent <- function() {
 
-    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
     on.exit(DatabaseConnector::disconnect(connection = connection))
 
     if (.agentRecordExists()) {
@@ -616,7 +754,7 @@ shinyServer(function(input, output, session) {
       
       df[df == ""] <- NA
       DatabaseConnector::insertTable(connection = connection, 
-                                     tableName = sprintf("%s.meta_agent", resultsDatabaseSchema), 
+                                     tableName = sprintf("%s.meta_agent", resultsDatabaseSchema()), 
                                      data = df, 
                                      dropTableIfExists = FALSE, createTable = FALSE, useMppBulkLoad = FALSE) 
       
@@ -1056,6 +1194,51 @@ shinyServer(function(input, output, session) {
                       value = .getValues()[row_count,][toupper(SqlRender::camelCaseToSnakeCase(t))][[1]])
     }
   })
+  
+  observe({
+    df <- .getAgents()
+    choices <- setNames(as.integer(df$META_AGENT_ID), paste(df$AGENT_LAST_NAME, 
+                                                            df$AGENT_FIRST_NAME, sep = ", "))
+    updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
+  })
+  
+  # Heel Events ------------------------------------------------------------
+  
+  observeEvent(eventExpr = input$dtHeelResults_rows_selected, handlerExpr = {
+    row_count <- input$dtHeelResults_rows_selected
+    annotationAsString <- .getHeelResults()[row_count,]$ANNOTATION_AS_STRING
+    
+    valueAsString <- .getHeelResults()[row_count,]$VALUE_AS_STRING
+    if (!is.na(annotationAsString)) {
+      updateSelectInput(session = session, inputId = "heelStatus", selected = annotationAsString)
+    }
+    if (!is.na(valueAsString)) {
+      updateTextInput(session = session, inputId = "heelAnnotation", value = valueAsString)
+    }
+  })
+  
+  observeEvent(eventExpr = input$btnDeleteHeel, handlerExpr = {
+    .deleteHeelAnnotation()
+    updateTextInput(session = session, inputId = "heelAnnotation", value = "")
+    updateSelectInput(session = session, inputId = "heelStatus", selected = "")
+  }, priority = 1)
+  
+  observeEvent(eventExpr = input$btnSubmitHeel, handlerExpr = {
+    if (input$heelStatus == "Needs Review" | input$heelAnnotation == "") {
+      showNotification(ui = "Please change Heel Status and add Annotation", type = "error")
+    } else {
+      row_count <- input$dtHeelResults_rows_selected
+      newAnnotation <- .getHeelResults()[row_count,]$ANNOTATION_AS_STRING == "Needs Review"
+      
+      if (!newAnnotation) {
+        .updateHeelAnnotation()
+      } else {
+        .addHeelAnnotation()
+      }
+      updateTextInput(session = session, inputId = "heelAnnotation", value = "")
+      updateSelectInput(session = session, inputId = "heelStatus", selected = "")
+    }
+  }, priority = 1)
   
 })
 
