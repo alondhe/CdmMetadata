@@ -351,17 +351,15 @@ shinyServer(function(input, output, session) {
     input$btnDeleteHeel
     
     df <- .getHeelResults()
-    # df <- separate(data = df, col = ACHILLES_HEEL_WARNING, 
-    #                into = c("WARNING_TYPE", "ACHILLES_HEEL_WARNING"), sep = ":", extra = "merge")
     
     df <- dplyr::arrange(df, ANALYSIS_ID) %>%
       dplyr::select(`Analysis Id` = ANALYSIS_ID,
                     `Rule Id` = RULE_ID,
-                    #`Warning Type` = WARNING_TYPE,
                     `Message` = ACHILLES_HEEL_WARNING,
                     `Record Count` = RECORD_COUNT,
                     `Heel Status` = ANNOTATION_AS_STRING,
-                    `Heel Annotation` = VALUE_AS_STRING)
+                    `Heel Annotation` = VALUE_AS_STRING,
+                    `Agent` = AGENT)
     
     options <- list(pageLength = 10000,
                     searching = TRUE,
@@ -737,7 +735,6 @@ shinyServer(function(input, output, session) {
     
     row_count <- input$dtHeelResults_rows_selected
     activityAsString <- .getHeelResults()[row_count,]$ACHILLES_HEEL_WARNING
-    annotationAsString <- .getHeelResults()[row_count,]$ANNOTATION_AS_STRING
     
     metaEntityActivityId <- (.getEntityActivities(subsetByAgent = FALSE) %>%
       dplyr::filter(ACTIVITY_AS_STRING == activityAsString))$META_ENTITY_ACTIVITY_ID
@@ -751,7 +748,8 @@ shinyServer(function(input, output, session) {
                                              dbms = connectionDetails()$dbms, 
                                              packageName = "CdmMetadata",
                                              resultsDatabaseSchema = resultsDatabaseSchema(),
-                                             annotationAsString = annotationAsString,
+                                             metaAgentId = input$selectAgent,
+                                             annotationAsString = input$heelStatus,
                                              metaAnnotationId = metaAnnotationId,
                                              metaValueId = metaValueId,
                                              valueAsString = input$heelAnnotation)
