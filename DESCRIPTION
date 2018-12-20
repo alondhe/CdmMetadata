@@ -18,7 +18,6 @@ Imports:
     ParallelLogger,
     plotly
 Suggests:
-    testthat,
     R.utils,
     shiny,
     DT,
@@ -27,7 +26,8 @@ Suggests:
     magrittr,
     tidyr,
     knitr, 
-    rmarkdown
+    rmarkdown,
+    shinycssloaders
 VignetteBuilder: knitr
 Remotes:
     OHDSI/OhdsiRTools

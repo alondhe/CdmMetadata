@@ -3,6 +3,7 @@ library(shinyWidgets)
 library(plotly)
 library(DT)
 library(shinydashboard)
+library(shinycssloaders)
 
 ui <- dashboardPage(
   dashboardHeader(title = "CDM Metadata", titleWidth = "300px",
@@ -14,15 +15,23 @@ ui <- dashboardPage(
   dashboardSidebar(width = "300px",
     selectInput(inputId = "cdmSource", label = "CDM Source", choices = lapply(cdmSources, function(c) c$name), width = "250px"),
     selectInput(inputId = "selectAgent", label = "Select Agent", choices = c(), width = "250px"),
+    
+    div(style = "display:inline-block;text-align: left;",
+        actionButton("btnAddNewAgent", label = "Add", icon = icon("plus"))),
+    div(style = "display:inline-block;text-align: left;",
+        actionButton("btnDeleteAgent", label = "Delete", icon = icon("minus"))),
+    div(style = "display:inline-block;text-align: left;",
+        actionButton("btnEditAgent", label = "Edit", icon = icon("edit"))),
+    
     sidebarMenu(
       id = "tabs",
-      menuItem("Explore Metadata", tabName = "explore", icon = icon("play"),
-               menuSubItem("Heel Results", tabName = "heelResults"),
-               menuSubItem("Concept", tabName = "concept")),
-      menuItem("Manage Metadata", tabName = "manage", icon = icon("wrench"),
-               menuSubItem("Agents", tabName = "agent"),
-               menuSubItem("Entities and Activities", tabName = "entityActivity"),
-               menuSubItem("Annotations", tabName = "annotation"))
+      menuItem("Explore Metadata", tabName = "explore", icon = icon("play"), startExpanded = TRUE,
+               menuSubItem("Heel Results", tabName = "heelResults", selected = TRUE),
+               menuSubItem("Concept", tabName = "concept"))
+      # menuItem("Manage Metadata", tabName = "manage", icon = icon("wrench"),
+      #          menuSubItem("Agents", tabName = "agent"),
+      #          menuSubItem("Entities and Activities", tabName = "entityActivity"),
+      #          menuSubItem("Annotations", tabName = "annotation"))
     ),
     conditionalPanel(condition = "input.tabs == 'heelResults'", 
       selectInput(inputId = "heelStatus", label = "Heel Status", choices = c("", 
@@ -32,8 +41,10 @@ ui <- dashboardPage(
                                                                              width = "250px"),
       textAreaInput(inputId = "heelAnnotation", label = "Heel Annotation",
                     rows = 4, resize = "none", width = "250px"),
-      actionButton(inputId = "btnSubmitHeel", label = "Submit Changes"),
-      actionButton(inputId = "btnDeleteHeel", label = "Remove Annotation")
+      div(style = "display:inline-block;text-align: left;",
+          actionButton(inputId = "btnSubmitHeel", label = "Submit Changes")),
+      div(style = "display:inline-block;text-align: left;",
+          actionButton(inputId = "btnDeleteHeel", label = "Remove Annotation"))
     ),
     conditionalPanel(condition = "input.tabs == 'concept'",
                      checkboxInput(inputId = "toggleConcepts", label = "See only concepts with metadata", value = FALSE),
@@ -44,22 +55,22 @@ ui <- dashboardPage(
                      selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px",
                                  choices = c())
                      ),
-    conditionalPanel(condition = "input.tabs == 'agent'",
-                     selectInput(inputId = "agentConceptId", label = "Agent Type", 
-                                 choices = c("Human" = 1000, "Algorithm" = 2000), width = "250px"),
-                     conditionalPanel(condition = "input.agentConceptId == 1000",
-                                      textInput(inputId = "agentFirstName", label = "First Name", width = "250px"),
-                                      textInput(inputId = "agentLastName", label = "Last Name", width = "250px"),
-                                      textInput(inputId = "agentSuffix", label = "Suffix", width = "250px")
-                     ),
-                     conditionalPanel(condition = "input.agentConceptId == 2000",
-                                      textInput(inputId = "agentAlgorithm", label = "Algorithm Name", width = "250px"),
-                                      textAreaInput(inputId = "agentDescription", label = "Description", 
-                                                    rows = 4, resize = "none", width = "250px")
-                     ),
-                     actionButton(inputId = "btnClearAgent", label = "Clear Selected", icon = icon("edit")),
-                     actionButton(inputId = "btnSubmitAgent", label = "Add New", icon = icon("check")),
-                     actionButton(inputId = "btnDeleteAgent", label = "Delete Selected", icon = icon("minus")), width = 3),
+    # conditionalPanel(condition = "input.tabs == 'agent'",
+    #                  selectInput(inputId = "agentConceptId", label = "Agent Type", 
+    #                              choices = c("Human" = 1000, "Algorithm" = 2000), width = "250px"),
+    #                  conditionalPanel(condition = "input.agentConceptId == 1000",
+    #                                   textInput(inputId = "agentFirstName", label = "First Name", width = "250px"),
+    #                                   textInput(inputId = "agentLastName", label = "Last Name", width = "250px"),
+    #                                   textInput(inputId = "agentSuffix", label = "Suffix", width = "250px")
+    #                  ),
+    #                  conditionalPanel(condition = "input.agentConceptId == 2000",
+    #                                   textInput(inputId = "agentAlgorithm", label = "Algorithm Name", width = "250px"),
+    #                                   textAreaInput(inputId = "agentDescription", label = "Description", 
+    #                                                 rows = 4, resize = "none", width = "250px")
+    #                  ),
+    #                  actionButton(inputId = "btnClearAgent", label = "Clear Selected", icon = icon("edit")),
+    #                  actionButton(inputId = "btnSubmitAgent", label = "Add New", icon = icon("check")),
+    #                  actionButton(inputId = "btnDeleteAgent", label = "Delete Selected", icon = icon("minus")), width = 3),
     conditionalPanel(condition = "input.tabs == 'entityActivity'",
                      textInput(inputId = "entityConceptId", label = "Entity Concept Id", width = "250px", value = 0),
                      textInput(inputId = "entityAsString", label = "Entity As String", width = "250px"), 
@@ -98,14 +109,16 @@ ui <- dashboardPage(
       tags$link(rel = "stylesheet", type = "text/css", href = "custom.css")),
     tabItems(
       tabItem("concept", 
-               h3("Concept"),
-               helpText("View metadata about a concept"),
-               plotlyOutput(outputId = "conceptPlot")
+              h3("Concept"),
+              helpText("View metadata about a concept"),
+              plotlyOutput(outputId = "conceptPlot") %>% withSpinner(color="#0dc5c1"),
+              verbatimTextOutput("hover"),
+              actionButton(inputId = "btnAnnotateConcept", label = "Annotate Concept Date")
               ),
       tabItem("heelResults",
               h3("Achilles Heel Results"),
               helpText("View Data Quality results from Achilles Heel"),
-              DT::dataTableOutput(outputId = "dtHeelResults")
+              DT::dataTableOutput(outputId = "dtHeelResults") %>% withSpinner(color="#0dc5c1")
             ),
       tabItem("agent",
               h3("Agent Information"),
