@@ -160,7 +160,9 @@ shinyServer(function(input, output, session) {
     DatabaseConnector::querySql(connection = connection, sql = sql)
   }
   
-  .getConceptPrevalance <- function() {
+  #.getConceptPrevalance <- function() {
+  
+  conceptPrevalence <- reactive({
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
@@ -177,21 +179,25 @@ shinyServer(function(input, output, session) {
     }
     
     df
-  }
+  })
   
-  .getChartMeta <- function() {
-    
-    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
-    on.exit(DatabaseConnector::disconnect(connection = connection))
-    
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getChartEntityActivity.sql", 
-                                             packageName = "CdmMetadata", 
-                                             dbms = connectionDetails()$dbms,
-                                             resultsDatabaseSchema = resultsDatabaseSchema(),
-                                             entityConceptId = input$conceptId)
-    
-    DatabaseConnector::querySql(connection = connection, sql = sql)
-  }
+  chartMeta <- reactive({
+  #.getChartMeta <- function() {
+    if (input$conceptId != "") {
+      connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+      on.exit(DatabaseConnector::disconnect(connection = connection))
+      
+      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getChartEntityActivity.sql", 
+                                               packageName = "CdmMetadata", 
+                                               dbms = connectionDetails()$dbms,
+                                               resultsDatabaseSchema = resultsDatabaseSchema(),
+                                               entityConceptId = input$conceptId)
+      
+      DatabaseConnector::querySql(connection = connection, sql = sql)
+    } else {
+      data.frame()
+    }
+  })
   
   .getAgents <- function() {
 
@@ -345,6 +351,14 @@ shinyServer(function(input, output, session) {
   # input rendering ------------------------------------------------------------
   
   # output rendering -----------------------------------------------------------
+  
+  output$conceptName <- renderText({
+    
+    df <- achillesConcepts()
+    paste(input$conceptId,
+          df$CONCEPT_NAME[df$CONCEPT_ID == input$conceptId], sep = " - ")
+  })
+  
   output$dtHeelResults <- renderDataTable(expr = {
     
     input$btnSubmitHeel
@@ -384,19 +398,24 @@ shinyServer(function(input, output, session) {
 
   observeEvent(input$toggleConcepts, {
     
+    df <- achillesConcepts()
+    selected <- df[df$DOMAIN_ID == input$domainId,]
+    
     if (input$toggleConcepts) {
-      selected <- achillesConcepts()[achillesConcepts()$ANALYSIS_ID == input$domainId,]
-      
       meta <- .getEntityActivities(FALSE)
       
-      meta <- meta$ENTITY_CONCEPT_ID[meta$ACTIVITY_AS_STRING == "Temporal Event"]
-      selected <- selected[selected$CONCEPT_ID %in% meta,]
+      tempEvents <- meta$ENTITY_CONCEPT_ID[meta$ACTIVITY_AS_STRING == "Temporal Event"]
+      selected <- selected[selected$CONCEPT_ID %in% tempEvents,]
       
       choices <- setNames(as.integer(selected$CONCEPT_ID), paste(selected$CONCEPT_ID, as.character(selected$CONCEPT_NAME), sep = " - "))
       
-      updateSelectInput(session = session, inputId = "conceptId", choices = choices)
+    } else {
+      choices <- setNames(as.integer(selected$CONCEPT_ID), paste(selected$CONCEPT_ID, 
+                                                                 as.character(selected$CONCEPT_NAME), sep = " - "))
     }
-  })
+    
+    updateSelectInput(session = session, inputId = "conceptId", choices = choices)
+  }, priority = 1)
   
   observeEvent(input$domainId, {
 
@@ -411,47 +430,8 @@ shinyServer(function(input, output, session) {
   })
   
   output$conceptPlot <- renderPlotly({
-    
-    df <- .getConceptPrevalance()
-    
-    meta <- .getChartMeta()
-    
-    if (nrow(meta) > 0) {
-      chartDate <- lubridate::floor_date(meta$ACTIVITY_START_DATE, "month")
-      a <- list(
-        x = chartDate,
-        y = df$COUNT_VALUE[df$STRATUM_2 == chartDate],
-        text = meta$VALUE_AS_STRING,
-        xref = "x",
-        yref = "y",
-        showarrow = TRUE,
-        arrowhead = 7
-      )
-      
-      plot_ly(df, x = ~STRATUM_2, y = ~COUNT_VALUE, type = "scatter", mode = "lines+markers", hoverinfo = 'text', source = "C") %>%
-        layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events")) %>%
-        layout(annotations = a)  
-    } else {
-      plot_ly(df, x = ~STRATUM_2, y = ~COUNT_VALUE, type = "scatter", mode = "lines+markers", source = "C") %>%
-        layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events"))
-    }
-  })
-  
-  output$hover <- renderPrint({
-    d <- event_data(event = "plotly_hover", source = "C", session = session)
-    if (is.null(d)) "events appear here (unhover to clear)" else d
-  })
-  
-  output$selectedAgentEA <- renderText({
-    .getSelectedAgentText()  
-  })
-  
-  output$selectedAgentAnn <- renderText({
-    .getSelectedAgentText()
-  })
-  
-  output$selectedEAAnn <- renderText({
-    .getSelectedEAText()
+    input$btnAddTemporalAnnotation
+    .refreshConceptPlot()
   })
   
   output$dtAgent <- renderDataTable({
@@ -598,6 +578,32 @@ shinyServer(function(input, output, session) {
   
   
   # crud operations -----------------------------------------------------------
+  
+  .refreshConceptPlot <- function() {
+    df <- conceptPrevalence() # .getConceptPrevalance()
+    
+    meta <- chartMeta() #.getChartMeta()
+    
+    if (nrow(meta) > 0) {
+      chartDate <- lubridate::floor_date(meta$ACTIVITY_START_DATE, "month")
+      a <- list(
+        x = chartDate,
+        y = df$COUNT_VALUE[df$STRATUM_2 == chartDate],
+        text = meta$VALUE_AS_STRING,
+        xref = "x",
+        yref = "y",
+        showarrow = TRUE,
+        arrowhead = 7
+      )
+      
+      plot_ly(df, x = ~STRATUM_2, y = ~COUNT_VALUE, type = "scatter", mode = "lines+markers", hoverinfo = 'text', source = "C") %>%
+        layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events")) %>%
+        layout(annotations = a)  
+    } else {
+      plot_ly(df, x = ~STRATUM_2, y = ~COUNT_VALUE, type = "scatter", mode = "lines+markers", source = "C") %>%
+        layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events"))
+    }
+  }
   
   .addConceptAnnotation <- function() {
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
@@ -918,17 +924,15 @@ shinyServer(function(input, output, session) {
                                              agentDescription = agentDescription,
                                              metaAgentId = metaAgentId)
     
-    cat(sql)
-
-    
     DatabaseConnector::executeSql(connection = connection, sql = sql)
     
     df <- .getAgents()
     humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
     algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
-    choices <- c(setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
-                                                                  humans$AGENT_FIRST_NAME, sep = ", ")),
-                 setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
+    choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
+                                                                               humans$AGENT_FIRST_NAME, sep = ", ")),
+                    `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
+    
     updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
     
     showNotification(sprintf("Agent updated"))
@@ -1092,9 +1096,9 @@ shinyServer(function(input, output, session) {
     df <- .getAgents()
     humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
     algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
-    choices <- c(setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
-                                                                  humans$AGENT_FIRST_NAME, sep = ", ")),
-                 setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
+    choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
+                                                                               humans$AGENT_FIRST_NAME, sep = ", ")),
+                    `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
     updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
     removeModal(session = session)
   }, priority = 1)
@@ -1157,26 +1161,63 @@ shinyServer(function(input, output, session) {
                  )
   }, priority = 1)
   
-  # Annotate Concept Events -----------------------------------
-
-  observeEvent(input$btnAnnotateConcept, handlerExpr = {
-    point <- event_data(event = "plotly_click", source = "C", session = session)
-    
-    # If NULL dont do anything
-    if(is.null(point) == T) return(NULL)
-    
-    showModal(modalDialog(
-      title = "Annotate a Concept at a Date",
-      dateInput(inputId = "conceptStartDate", label = "Start Date", value = point$x),
-      textAreaInput(inputId = "conceptAnnotation", label = "Concept Annotation"),
-      actionButton(inputId = "btnSubmitConceptAnnotation", label = "Submit Annotation")
-    ))
-    
+  # Annotate Temporal Events -----------------------------------
+  
+  observe({
+    clicked <- event_data(event = "plotly_click", source = "C", session = session)
+    updateDateInput(session = session, inputId = "conceptStartDate", value = clicked$x)
   })
   
-  observeEvent(input$btnSubmitConceptAnnotation, handlerExpr = {
+  observeEvent(input$btnAddTemporalAnnotation, handlerExpr = {
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+    on.exit(DatabaseConnector::disconnect(connection = connection))
     
-  })
+    metaEntityActivityId <- .getMaxId("meta_entity_activity", "meta_entity_activity_id") + 1
+    
+    df <- data.frame(
+      meta_entity_activity_Id = metaEntityActivityId,
+      meta_agent_id = as.integer(input$selectAgent),
+      entity_concept_Id = as.integer(input$conceptId),
+      entity_as_string = NA,
+      entity_identifier = NA,
+      activity_concept_id = 0,
+      activity_type_concept_id = 0,
+      activity_as_string = "Temporal Event",
+      activity_start_date = input$conceptStartDate,
+      activity_end_date = input$conceptStartDate,
+      security_concept_id = 0
+    )
+    
+    DatabaseConnector::insertTable(connection = connection, 
+                                   tableName = sprintf("%s.meta_entity_activity", resultsDatabaseSchema()),
+                                   data = df, dropTableIfExists = F, createTable = F, useMppBulkLoad = F)
+    
+    metaValueId <- .getMaxId(tableName = "meta_value",
+                             fieldName = "meta_value_id") + 1
+    
+    value <- data.frame(
+      meta_value_id = metaValueId,
+      value_ordinal = 1, 
+      meta_entity_activity_id = metaEntityActivityId,
+      meta_annotation_id = NA,
+      value_concept_id = 0,
+      value_type_concept_id = 0,
+      value_as_string = input$temporalEventValue,
+      value_as_number = NA,
+      operator_concept_id = 0
+    )
+    
+    DatabaseConnector::insertTable(connection = connection, 
+                                   tableName = sprintf("%s.meta_value", resultsDatabaseSchema()), 
+                                   data = value, 
+                                   dropTableIfExists = F, createTable = F)
+    
+    
+    #.refreshConceptPlot()
+    
+    showNotification(sprintf("New Temporal Event added"))
+    
+  }, priority = 1)
   
   # Agent Events -----------------------------------------------
   
@@ -1186,9 +1227,9 @@ shinyServer(function(input, output, session) {
     df <- .getAgents()
     humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
     algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
-    choices <- c(setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
-                                                                  humans$AGENT_FIRST_NAME, sep = ", ")),
-                 setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
+    choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
+                                                                               humans$AGENT_FIRST_NAME, sep = ", ")),
+                    `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
     updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
     removeModal(session = session)
   }, priority = 1)
@@ -1377,9 +1418,9 @@ shinyServer(function(input, output, session) {
     humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
     algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
     
-    choices <- c(setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
-                                                            humans$AGENT_FIRST_NAME, sep = ", ")),
-                 setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
+    choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
+                                                                               humans$AGENT_FIRST_NAME, sep = ", ")),
+                    `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
     updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
   })
   
