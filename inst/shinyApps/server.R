@@ -307,14 +307,14 @@ shinyServer(function(input, output, session) {
       connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
                                                                       server = cdmSource$server,
                                                                       port = cdmSource$port,
-                                                                      extraSettings = "")
+                                                                      extraSettings = cdmSource$extraSettings)
     } else {
       connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
                                                                       server = cdmSource$server,
                                                                       port = cdmSource$port,
                                                                       user = cdmSource$user,
                                                                       password = cdmSource$password,
-                                                                      extraSettings = "")
+                                                                      extraSettings = cdmSource$extraSettings)
     }
     connectionDetails
   })
