@@ -306,13 +306,15 @@ shinyServer(function(input, output, session) {
     if (is.null(cdmSource$user)) {
       connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
                                                                       server = cdmSource$server,
-                                                                      port = cdmSource$port)
+                                                                      port = cdmSource$port,
+                                                                      extraSettings = "")
     } else {
       connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
                                                                       server = cdmSource$server,
                                                                       port = cdmSource$port,
                                                                       user = cdmSource$user,
-                                                                      password = cdmSource$password)
+                                                                      password = cdmSource$password,
+                                                                      extraSettings = "")
     }
     connectionDetails
   })
