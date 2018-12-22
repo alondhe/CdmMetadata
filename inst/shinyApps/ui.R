@@ -4,6 +4,7 @@ library(plotly)
 library(DT)
 library(shinydashboard)
 library(shinycssloaders)
+library(rclipboard)
 
 ui <- dashboardPage(
   dashboardHeader(title = "CDM Metadata", titleWidth = "300px",
@@ -26,9 +27,16 @@ ui <- dashboardPage(
     sidebarMenu(
       id = "tabs",
       menuItem("Explore Metadata", tabName = "explore", icon = icon("play"), startExpanded = TRUE,
-               menuSubItem("Heel Results", tabName = "heelResults", icon = icon("table"), selected = TRUE),
-               menuSubItem("Concept", tabName = "concept", icon = icon("line-chart")))
+               menuSubItem("Source Provenance", tabName = "provenance", icon = icon("database")),
+               menuSubItem("Heel Results", tabName = "heelResults", icon = icon("table")),
+               menuSubItem("Concept Prevalence", tabName = "concept", icon = icon("line-chart")),
+               menuSubItem("Concept Set Knowledge Base", tabName = "conceptSetKb", icon = icon("list"), selected = TRUE),
+               menuSubItem("Cohort Knowledge Base", tabName = "cohortDefKb", icon = icon("globe")))
     ),
+    conditionalPanel(condition = "input.tabs == 'provenance'",
+                     textAreaInput(inputId = "sourceDescription", label = "Source Description"),
+                     actionButton(inputId = "btnSubmitDescription", label = "Submit", icon = icon("check"))
+                     ),
     conditionalPanel(condition = "input.tabs == 'heelResults'", 
       selectInput(inputId = "heelStatus", label = "Heel Status", choices = c("", 
                                                                              "Needs Review", #= 900000519, 
@@ -56,6 +64,19 @@ ui <- dashboardPage(
     tags$head(
       tags$link(rel = "stylesheet", type = "text/css", href = "custom.css")),
     tabItems(
+      tabItem("provenance",
+              h3("Source Provenance: ", textOutput(outputId = "sourceName")),
+              helpText("Create and view metadata about the source's provenance"),
+              div(
+                h4("Source Description"),
+                uiOutput("clip"),
+                textOutput(outputId = "sourceDescriptionOutput")  
+              ),
+              div(
+                h4("CDM Version"),
+                textOutput(outputId = "cdmVersion")
+              )
+              ),
       tabItem("concept", 
               h3("Concept"),
               helpText("Create and view metadata about a concept"),
@@ -69,7 +90,21 @@ ui <- dashboardPage(
               h3("Achilles Heel Results"),
               helpText("Annotate and view Data Quality results from Achilles Heel"),
               DT::dataTableOutput(outputId = "dtHeelResults") %>% withSpinner(color="#0dc5c1")
-            )
+              ),
+      tabItem("conceptSetKb",
+              h3("Concept Set Knowledge Base"),
+              DT::dataTableOutput(outputId = "dtConceptSetPicker") %>% withSpinner(color="#0dc5c1"),
+              verbatimTextOutput(outputId = "includedConcepts")
+              ),
+      tabItem("cohortDefKb",
+              h3("Cohort Knowledge Base"),
+              helpText("Explore known metadata about a cohort definition"),
+              DT::dataTableOutput(outputId = "dtCohortPicker") %>% withSpinner(color="#0dc5c1"),
+              tabsetPanel(type = "tabs",
+                          tabPanel("Knowledge Base", verbatimTextOutput(outputId = "cohortConcepts"))
+                          #tabPanel("JSON", verbatimTextOutput(outputId = "cohortJson")))
+              )
           )
       )
+  )
 )

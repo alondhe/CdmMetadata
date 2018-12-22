@@ -1,0 +1,28 @@
+{
+  "sources": [
+    {
+      "name": "SynPuf",
+      "dbms": "postgresql",
+      "user": "postgres",
+      "password": "",
+      "extraSettings": "",
+      "server": "localhost/synpuf",
+      "port": 5432,
+      "cdmDatabaseSchema": "cdm",
+      "resultsDatabaseSchema": "results",
+      "vocabDatabaseSchema": "cdm"
+    },
+    {
+      "name": "Synthea",
+      "dbms": "postgresql",
+      "user": "postgres",
+      "password": "",
+      "extraSettings": "",
+      "server": "localhost/synthea",
+      "port": 5432,
+      "cdmDatabaseSchema": "cdm",
+      "resultsDatabaseSchema": "results",
+      "vocabDatabaseSchema": "cdm"
+    }
+  ]
+}

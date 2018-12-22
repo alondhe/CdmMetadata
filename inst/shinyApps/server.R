@@ -2,14 +2,97 @@ library(shiny)
 library(DT)
 library(magrittr)
 library(tidyr)
+library(httr)
 
 shinyServer(function(input, output, session) {
   
-  dtAgentProxy <- dataTableProxy("dtAgent")
-  dtEAProxy <- dataTableProxy("dtEntityActivity")
-  dtValueEAProxy <- dataTableProxy("dtValueEA")
-  dtValueAnnProxy <- dataTableProxy("dtValueAnnotation")
-  dtAnnotationProxy <- dataTableProxy("dtAnnotation")
+  # output$clip <- renderUI({
+  #   rclipButton("clipbtn", "Copy", input$sourceDescription, icon("clipboard"))
+  # })
+  
+  #observeEvent(input$clipbtn, clipr::write_clip(input$sourceDescription))
+  
+  output$sourceName <- renderText({
+    input$cdmSource
+  })
+  
+  cohortDefinitions <- reactive({
+    url <- sprintf("%1s/cohortdefinition", baseUrl)
+    cohorts <- httr::content(httr::GET(url))
+    cohorts <- lapply(cohorts, function(c) {
+      data.frame(ID = c$id, Name = c$name)
+    })
+    do.call("rbind", cohorts)
+  })
+
+  conceptSets <- reactive({
+    url <- sprintf("%1s/conceptset", baseUrl)
+    sets <- httr::content(httr::GET(url))
+    sets <- lapply(sets, function(c) {
+      data.frame(ID = c$id, Name = c$name)
+    })
+    do.call("rbind", sets)
+  })
+  
+  output$dtCohortPicker <- renderDataTable({
+    df <- cohortDefinitions()
+
+    options <- list(pageLength = 100,
+                    searching = TRUE,
+                    lengthChange = FALSE,
+                    ordering = TRUE,
+                    paging = FALSE,
+                    scrollY = '15vh')
+    selection <- list(mode = "single", target = "row")
+    
+    table <- datatable(df,
+                       options = options,
+                       selection = "single",
+                       rownames = FALSE, 
+                       class = "stripe nowrap compact", extensions = c("Responsive"))
+    
+    table
+  })
+  
+  output$dtConceptSetPicker <- renderDataTable({
+    df <- conceptSets()
+    
+    options <- list(pageLength = 100,
+                    searching = TRUE,
+                    lengthChange = FALSE,
+                    ordering = TRUE,
+                    paging = FALSE,
+                    scrollY = '15vh')
+    selection <- list(mode = "single", target = "row")
+    
+    table <- datatable(df,
+                       options = options,
+                       selection = "single",
+                       rownames = FALSE, 
+                       class = "stripe nowrap compact", extensions = c("Responsive"))
+    
+    table
+  })
+  
+  observeEvent(eventExpr = input$dtCohortPicker_rows_selected, handlerExpr = {
+    row_count <- input$dtCohortPicker_rows_selected
+    cohortId <- cohortDefinitions()[row_count, ]$ID
+    
+    url <- sprintf("%s/cohortdefinition/%d", baseUrl, as.integer(cohortId))
+    
+    json <- httr::content(x = httr::GET(url), encoding = "json")
+
+  })
+  
+  observeEvent(eventExpr = input$dtConceptSetPicker_rows_selected, handlerExpr = {
+    row_count <- input$dtConceptSetPicker_rows_selected
+    conceptSetId <- conceptSets()[row_count, ]$ID
+    concepts <- OhdsiRTools::getConceptSetConceptIds(baseUrl = baseUrl, 
+                                                     setId = conceptSetId)
+    
+    output$includedConcepts <- renderText({ paste(concepts, collapse = ",") })
+  })
+  
 
   # Text Inputs ------------------------------------------------------
   
@@ -598,11 +681,15 @@ shinyServer(function(input, output, session) {
         arrowhead = 7
       )
       
-      plot_ly(df, x = ~STRATUM_2, y = ~COUNT_VALUE, type = "scatter", mode = "lines+markers", hoverinfo = 'text', source = "C") %>%
+      plot_ly(df, x = ~STRATUM_2, y = ~COUNT_VALUE, type = "scatter", mode = "lines+markers", 
+              #showspikes = TRUE,
+              hoverinfo = 'text', source = "C") %>%
         layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events")) %>%
         layout(annotations = a)  
     } else {
-      plot_ly(df, x = ~STRATUM_2, y = ~COUNT_VALUE, type = "scatter", mode = "lines+markers", source = "C") %>%
+      plot_ly(df, x = ~STRATUM_2, y = ~COUNT_VALUE, type = "scatter", mode = "lines+markers", 
+              #showspikes = TRUE,
+              source = "C") %>%
         layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events"))
     }
   }
