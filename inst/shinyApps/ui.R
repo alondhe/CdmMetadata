@@ -1,4 +1,5 @@
 library(shiny)
+library(shinyjs)
 library(shinyWidgets)
 library(plotly)
 library(DT)
@@ -14,24 +15,26 @@ ui <- dashboardPage(
                             style = "padding-top:10px; padding-bottom:10px;"),
                           class = "dropdown")),
   dashboardSidebar(width = "300px",
-    selectInput(inputId = "cdmSource", label = "CDM Source", choices = lapply(cdmSources, function(c) c$name), width = "250px"),
-    selectInput(inputId = "selectAgent", label = "Select Agent", choices = c(), width = "250px"),
-    
-    div(style = "display:inline-block;text-align: left;",
-        actionButton("btnAddNewAgent", label = "Add", icon = icon("plus"))),
-    div(style = "display:inline-block;text-align: left;",
-        actionButton("btnDeleteAgent", label = "Delete", icon = icon("minus"))),
-    div(style = "display:inline-block;text-align: left;",
-        actionButton("btnEditAgent", label = "Edit", icon = icon("edit"))),
-    
+                   useShinyjs(),
+                   selectInput(inputId = "cdmSource", label = "CDM Source", choices = lapply(cdmSources, function(c) c$name), width = "250px"),
+                   conditionalPanel(condition = "input.cdmSource != 'All Sources'",
+                     selectInput(inputId = "selectAgent", label = "Select Agent", choices = c(), width = "250px"),
+                     
+                     div(style = "display:inline-block;text-align: left;",
+                         actionButton("btnAddNewAgent", label = "Add", icon = icon("plus"))),
+                     div(style = "display:inline-block;text-align: left;",
+                         actionButton("btnDeleteAgent", label = "Delete", icon = icon("minus"))),
+                     div(style = "display:inline-block;text-align: left;",
+                         actionButton("btnEditAgent", label = "Edit", icon = icon("edit")))
+                     ),
     sidebarMenu(
       id = "tabs",
-      menuItem("Explore Metadata", tabName = "explore", icon = icon("play"), startExpanded = TRUE,
-               menuSubItem("Source Provenance", tabName = "provenance", icon = icon("database")),
-               menuSubItem("Heel Results", tabName = "heelResults", icon = icon("table")),
-               menuSubItem("Concept Prevalence", tabName = "concept", icon = icon("line-chart")),
-               menuSubItem("Concept Set Knowledge Base", tabName = "conceptSetKb", icon = icon("list"), selected = TRUE),
-               menuSubItem("Cohort Knowledge Base", tabName = "cohortDefKb", icon = icon("globe")))
+      menuItem("Sources Overview", tabName = "overview", icon = icon("play"), selected = TRUE),
+      menuItem("Source Provenance", tabName = "provenance", icon = icon("database")),
+      menuItem("Heel Results", tabName = "heelResults", icon = icon("table")),
+      menuItem("Concept Knowledge Base", tabName = "conceptKb", icon = icon("line-chart")),
+      menuItem("Concept Set Knowledge Base", tabName = "conceptSetKb", icon = icon("list")),
+      menuItem("Cohort Knowledge Base", tabName = "cohortDefKb", icon = icon("globe"))
     ),
     conditionalPanel(condition = "input.tabs == 'provenance'",
                      textAreaInput(inputId = "sourceDescription", label = "Source Description"),
@@ -50,7 +53,7 @@ ui <- dashboardPage(
       div(style = "display:inline-block;text-align: left;",
           actionButton(inputId = "btnDeleteHeel", label = "Remove", icon = icon("minus")))
     ),
-    conditionalPanel(condition = "input.tabs == 'concept'",
+    conditionalPanel(condition = "input.tabs == 'conceptKb'",
                      #checkboxInput(inputId = "toggleConcepts", label = "See only concepts with metadata", value = FALSE),
                      selectInput(inputId = "domainId", label = "Domain",
                                  choices = c("Condition" = 402, 
@@ -64,6 +67,11 @@ ui <- dashboardPage(
     tags$head(
       tags$link(rel = "stylesheet", type = "text/css", href = "custom.css")),
     tabItems(
+      tabItem("overview",
+              h3("Sources Overview"),
+              helpText("View metadata about all sources from your site"),
+              
+              ),
       tabItem("provenance",
               h3("Source Provenance: ", textOutput(outputId = "sourceName")),
               helpText("Create and view metadata about the source's provenance"),
@@ -77,7 +85,7 @@ ui <- dashboardPage(
                 textOutput(outputId = "cdmVersion")
               )
               ),
-      tabItem("concept", 
+      tabItem("conceptKb", 
               h3("Concept"),
               helpText("Create and view metadata about a concept"),
               plotlyOutput(outputId = "conceptPlot") %>% withSpinner(color="#0dc5c1"),
@@ -93,7 +101,10 @@ ui <- dashboardPage(
               ),
       tabItem("conceptSetKb",
               h3("Concept Set Knowledge Base"),
-              DT::dataTableOutput(outputId = "dtConceptSetPicker") %>% withSpinner(color="#0dc5c1"),
+              fluidRow(
+                column(4,
+                       DT::dataTableOutput(outputId = "dtConceptSetPicker") %>% withSpinner(color="#0dc5c1"))
+              ),
               verbatimTextOutput(outputId = "includedConcepts")
               ),
       tabItem("cohortDefKb",

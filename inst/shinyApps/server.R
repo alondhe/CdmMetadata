@@ -3,8 +3,39 @@ library(DT)
 library(magrittr)
 library(tidyr)
 library(httr)
+library(shinyjs)
 
 shinyServer(function(input, output, session) {
+  
+  observe({
+    if (input$cdmSource == "All Sources") {
+      hide(selector = "#sidebarCollapsed li a[data-value=provenance]")
+      hide(selector = "#sidebarCollapsed li a[data-value=heelResults]")  
+      hide(selector = "#sidebarCollapsed li a[data-value=conceptKb]")  
+      hide(selector = "#sidebarCollapsed li a[data-value=conceptSetKb]")  
+      hide(selector = "#sidebarCollapsed li a[data-value=cohortDefKb]")  
+      
+      updateTabItems(session = session, inputId = "tabs", selected = "overview")
+    } else {
+      show(selector = "#sidebarCollapsed li a[data-value=provenance]")
+      show(selector = "#sidebarCollapsed li a[data-value=heelResults]")  
+      show(selector = "#sidebarCollapsed li a[data-value=conceptKb]")  
+      show(selector = "#sidebarCollapsed li a[data-value=conceptSetKb]")  
+      show(selector = "#sidebarCollapsed li a[data-value=cohortDefKb]")  
+      updateTabItems(session = session, inputId = "tabs", selected = "provenance")
+    }
+  })
+  
+  observe({
+    if (input$tabs == "overview") {
+      hide(selector = "#sidebarCollapsed li a[data-value=provenance]")
+      hide(selector = "#sidebarCollapsed li a[data-value=heelResults]")  
+      hide(selector = "#sidebarCollapsed li a[data-value=conceptKb]")  
+      hide(selector = "#sidebarCollapsed li a[data-value=conceptSetKb]")  
+      hide(selector = "#sidebarCollapsed li a[data-value=cohortDefKb]")  
+      updateSelectInput(session = session, inputId = "cdmSource", selected = "All Sources")
+    }
+  })
   
   # output$clip <- renderUI({
   #   rclipButton("clipbtn", "Copy", input$sourceDescription, icon("clipboard"))
@@ -37,12 +68,12 @@ shinyServer(function(input, output, session) {
   output$dtCohortPicker <- renderDataTable({
     df <- cohortDefinitions()
 
-    options <- list(pageLength = 100,
+    options <- list(pageLength = 50,
                     searching = TRUE,
                     lengthChange = FALSE,
                     ordering = TRUE,
-                    paging = FALSE,
-                    scrollY = '15vh')
+                    paging = TRUE,
+                    scrollY = '35vh')
     selection <- list(mode = "single", target = "row")
     
     table <- datatable(df,
@@ -57,12 +88,12 @@ shinyServer(function(input, output, session) {
   output$dtConceptSetPicker <- renderDataTable({
     df <- conceptSets()
     
-    options <- list(pageLength = 100,
+    options <- list(pageLength = 50,
                     searching = TRUE,
                     lengthChange = FALSE,
                     ordering = TRUE,
-                    paging = FALSE,
-                    scrollY = '15vh')
+                    paging = TRUE,
+                    scrollY = '35vh')
     selection <- list(mode = "single", target = "row")
     
     table <- datatable(df,
@@ -383,54 +414,74 @@ shinyServer(function(input, output, session) {
   # reactives -----------------------------------------------------------------
   
   connectionDetails <- reactive({
-    index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
-    cdmSource <- cdmSources[[index]]
-    
-    if (is.null(cdmSource$user)) {
-      connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
-                                                                      server = cdmSource$server,
-                                                                      port = cdmSource$port,
-                                                                      extraSettings = cdmSource$extraSettings)
+    if (input$cdmSource != "All Sources") {
+      index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
+      cdmSource <- cdmSources[[index]]
+      
+      if (is.null(cdmSource$user)) {
+        connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
+                                                                        server = cdmSource$server,
+                                                                        port = cdmSource$port,
+                                                                        extraSettings = cdmSource$extraSettings)
+      } else {
+        connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
+                                                                        server = cdmSource$server,
+                                                                        port = cdmSource$port,
+                                                                        user = cdmSource$user,
+                                                                        password = cdmSource$password,
+                                                                        extraSettings = cdmSource$extraSettings)
+      }
+      connectionDetails  
     } else {
-      connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
-                                                                      server = cdmSource$server,
-                                                                      port = cdmSource$port,
-                                                                      user = cdmSource$user,
-                                                                      password = cdmSource$password,
-                                                                      extraSettings = cdmSource$extraSettings)
+      NULL
     }
-    connectionDetails
   })
   
   resultsDatabaseSchema <- reactive({
-    index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
-    cdmSource <- cdmSources[[index]]
-    cdmSource$resultsDatabaseSchema
+    if (input$cdmSource != "All Sources") {
+      index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
+      cdmSource <- cdmSources[[index]]
+      cdmSource$resultsDatabaseSchema
+    } else {
+      NULL
+    }
   })
   
   cdmDatabaseSchema <- reactive({
-    index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
-    cdmSource <- cdmSources[[index]]
-    cdmSource$cdmDatabaseSchema
+    if (input$cdmSource != "All Sources") {
+      index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
+      cdmSource <- cdmSources[[index]]
+      cdmSource$cdmDatabaseSchema
+    } else {
+      NULL
+    }
   })
   
   vocabDatabaseSchema <- reactive({
-    index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
-    cdmSource <- cdmSources[[index]]
-    cdmSource$vocabDatabaseSchema
+    if (input$cdmSource != "All Sources") {
+      index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
+      cdmSource <- cdmSources[[index]]
+      cdmSource$vocabDatabaseSchema
+    } else {
+      NULL
+    }
   })
   
   achillesConcepts <- reactive({
-    sql <- SqlRender::renderSql("select distinct A.analysis_id, A.stratum_1, B.concept_name, B.concept_id from @resultsDatabaseSchema.achilles_results A
-                                join @vocabDatabaseSchema.concept B on cast(stratum_1 as integer) = B.concept_id
-                                  and B.concept_id <> 0
-                                where A.analysis_id in (402,602,2101,702,1801,802);",
-                                resultsDatabaseSchema = resultsDatabaseSchema(),
-                                vocabDatabaseSchema = vocabDatabaseSchema())$sql
-    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
-    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
-    on.exit(DatabaseConnector::disconnect(connection = connection))
-    DatabaseConnector::querySql(connection = connection, sql = sql)
+    if (input$cdmSource != "All Sources") {
+      sql <- SqlRender::renderSql("select distinct A.analysis_id, A.stratum_1, B.concept_name, B.concept_id from @resultsDatabaseSchema.achilles_results A
+                                  join @vocabDatabaseSchema.concept B on cast(stratum_1 as integer) = B.concept_id
+                                    and B.concept_id <> 0
+                                  where A.analysis_id in (402,602,2101,702,1801,802);",
+                                  resultsDatabaseSchema = resultsDatabaseSchema(),
+                                  vocabDatabaseSchema = vocabDatabaseSchema())$sql
+      sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
+      connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+      on.exit(DatabaseConnector::disconnect(connection = connection))
+      DatabaseConnector::querySql(connection = connection, sql = sql)
+    } else {
+      NULL
+    }
   })
   
   # input rendering ------------------------------------------------------------
@@ -460,12 +511,12 @@ shinyServer(function(input, output, session) {
                     `Heel Annotation` = VALUE_AS_STRING,
                     `Agent` = AGENT)
     
-    options <- list(pageLength = 10000,
+    options <- list(pageLength = 50,
                     searching = TRUE,
                     lengthChange = FALSE,
                     ordering = TRUE,
-                    paging = FALSE,
-                    scrollY = '75vh')
+                    paging = TRUE,
+                    scrollY = '50vh')
     selection <- list(mode = "single", target = "row")
 
     table <- datatable(df,
@@ -1502,15 +1553,16 @@ shinyServer(function(input, output, session) {
   })
   
   observe({
-    df <- .getAgents()
-    
-    humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
-    algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
-    
-    choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
-                                                                               humans$AGENT_FIRST_NAME, sep = ", ")),
-                    `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
-    updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
+    if (input$cdmSource != "All Sources") {
+      df <- .getAgents()  
+      humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
+      algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
+      
+      choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
+                                                                                 humans$AGENT_FIRST_NAME, sep = ", ")),
+                      `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
+      updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
+    }
   })
   
   # Heel Events ------------------------------------------------------------
@@ -1554,20 +1606,20 @@ shinyServer(function(input, output, session) {
 })
 
 
-.getSourceName <- function(connectionDetails,
-                           cdmDatabaseSchema) {
-  sql <- SqlRender::renderSql(sql = "select cdm_source_name from @cdmDatabaseSchema.cdm_source",
-                              cdmDatabaseSchema = cdmDatabaseSchema)$sql
-  sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
-  connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
-  sourceName <- tryCatch({
-    s <- DatabaseConnector::querySql(connection = connection, sql = sql)
-    s[1,]
-  }, error = function (e) {
-    ""
-  }, finally = {
-    DatabaseConnector::disconnect(connection = connection)
-    rm(connection)
-  })
-  sourceName
-}
+# .getSourceName <- function(connectionDetails,
+#                            cdmDatabaseSchema) {
+#   sql <- SqlRender::renderSql(sql = "select cdm_source_name from @cdmDatabaseSchema.cdm_source",
+#                               cdmDatabaseSchema = cdmDatabaseSchema)$sql
+#   sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
+#   connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+#   sourceName <- tryCatch({
+#     s <- DatabaseConnector::querySql(connection = connection, sql = sql)
+#     s[1,]
+#   }, error = function (e) {
+#     ""
+#   }, finally = {
+#     DatabaseConnector::disconnect(connection = connection)
+#     rm(connection)
+#   })
+#   sourceName
+# }
