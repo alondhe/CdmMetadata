@@ -48,7 +48,7 @@ shinyServer(function(input, output, session) {
   
   achillesConcepts <- reactive({
     if (input$cdmSource != "All Sources") {
-      rdsFile <- file.path("data", sprintf("%s.rds", currentSource()$name))
+      rdsFile <- file.path("data", "achilles_concepts", sprintf("%s.rds", currentSource()$name))
       readRDS(file = rdsFile)
     } else {
       NULL
@@ -73,7 +73,7 @@ shinyServer(function(input, output, session) {
     do.call("rbind", sets)
   })
   
-  conceptPrevalence <- reactive({
+  .getConceptPrevalence <- function() {
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
@@ -90,9 +90,9 @@ shinyServer(function(input, output, session) {
     }
     
     df
-  })
+  }
   
-  chartMeta <- reactive({
+  .getChartMeta <- function() {
     if (input$conceptId != "") {
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
       on.exit(DatabaseConnector::disconnect(connection = connection))
@@ -107,7 +107,7 @@ shinyServer(function(input, output, session) {
     } else {
       data.frame()
     }
-  })
+  }
   
   # Source Queries ------------------------------------------------------
   
@@ -178,6 +178,17 @@ shinyServer(function(input, output, session) {
   }
   
   # Observes ----------------------------------------------------------
+  
+  observe({
+    if (input$tabs == "conceptKb" & currentSource()$name != "All Sources") {
+      selected <- achillesConcepts()[achillesConcepts()$ANALYSIS_ID == input$domainId,]
+      
+      choices <- setNames(as.integer(selected$CONCEPT_ID), 
+                          paste(selected$CONCEPT_ID, as.character(selected$CONCEPT_NAME), sep = " - "))
+      updateSelectInput(session = session, inputId = "conceptId", choices = choices) 
+    }
+  })
+  
   
   observe({
     clicked <- event_data(event = "plotly_click", source = "C", session = session)
@@ -413,6 +424,41 @@ shinyServer(function(input, output, session) {
   
   # Query Metadata tables -----------------------------------------------------------------
   
+  .refreshConceptPlot <- function() {
+
+    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getConceptsAndMetadata.sql",
+                                            packageName = "CdmMetadata", 
+                                            dbms = connectionDetails()$dbms,
+                                            resultsDatabaseSchema = resultsDatabaseSchema(),
+                                            conceptId = input$conceptId,
+                                            analysisId = input$domainId)
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    df <- DatabaseConnector::querySql(connection = connection, sql = sql)
+    
+    if (nrow(df) > 0) {
+      df$DATE <- as.Date(paste0(df$STRATUM_2, "01"), format = "%Y%m%d") 
+      meta <- df[!is.na(df$VALUE_AS_STRING),]
+      
+      if (nrow(meta) > 0) {
+        plot_ly(data = df, x = ~DATE, y = ~COUNT_VALUE, name = "Concept Prevalance",
+                type = "scatter", mode = "lines", source = "C") %>%
+          add_trace(data = meta, x = ~DATE, y = ~COUNT_VALUE, text = ~VALUE_AS_STRING,
+                    size = 120,
+                    name = "Temporal Event", mode = "markers") %>%
+          layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events"))
+      } else {
+        plot_ly(data = df, x = ~DATE, y = ~COUNT_VALUE, name = "Concept Prevalance",
+                type = "scatter", mode = "lines", source = "C") %>%
+          layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events"))
+      }
+      
+    } else {
+      NULL
+    }
+  }
+  
   .getHeelResults <- function() {
     sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "heelResults/getHeels.sql", 
                                              packageName = "CdmMetadata", 
@@ -536,8 +582,7 @@ shinyServer(function(input, output, session) {
   
   # Output Plotly Renders ---------------------------------------------------
   
-  output$conceptPlot <- renderPlotly({
-    input$btnAddTemporalAnnotation
+  output$conceptKbPlot <- renderPlotly({
     .refreshConceptPlot()
   })
   
@@ -710,6 +755,8 @@ shinyServer(function(input, output, session) {
     
   })
   
+  # btnAddTemporalAnnotation -----------------------
+  
   observeEvent(input$btnAddTemporalAnnotation, handlerExpr = {
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
     on.exit(DatabaseConnector::disconnect(connection = connection))
@@ -754,8 +801,11 @@ shinyServer(function(input, output, session) {
                                    data = value, 
                                    dropTableIfExists = F, createTable = F)
     
+    output$conceptKbPlot <- renderPlotly({
+      .refreshConceptPlot()
+    })
     
-    #.refreshConceptPlot()
+    updateTextAreaInput(session = session, inputId = "temporalEventValue", value = "")
     
     showNotification(sprintf("New Temporal Event added"))
     
@@ -782,49 +832,8 @@ shinyServer(function(input, output, session) {
     updateSelectInput(session = session, inputId = "conceptId", choices = choices)
   }, priority = 1)
   
-  observeEvent(input$domainId, {
 
-    selected <- achillesConcepts()[achillesConcepts()$ANALYSIS_ID == input$domainId,]
-
-    choices <- setNames(as.integer(selected$CONCEPT_ID), paste(selected$CONCEPT_ID, as.character(selected$CONCEPT_NAME), sep = " - "))
-    updateSelectInput(session = session, inputId = "conceptId", choices = choices)
-  })
-  
-
-  
-
-  
   # Crud operations -----------------------------------------------------------
-  
-  .refreshConceptPlot <- function() {
-    df <- conceptPrevalence() # .getConceptPrevalance()
-    
-    meta <- chartMeta() #.getChartMeta()
-    
-    if (nrow(meta) > 0) {
-      chartDate <- lubridate::floor_date(meta$ACTIVITY_START_DATE, "month")
-      a <- list(
-        x = chartDate,
-        y = df$COUNT_VALUE[df$STRATUM_2 == chartDate],
-        text = meta$VALUE_AS_STRING,
-        xref = "x",
-        yref = "y",
-        showarrow = TRUE,
-        arrowhead = 7
-      )
-      
-      plot_ly(df, x = ~STRATUM_2, y = ~COUNT_VALUE, type = "scatter", mode = "lines+markers", 
-              #showspikes = TRUE,
-              hoverinfo = 'text', source = "C") %>%
-        layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events")) %>%
-        layout(annotations = a)  
-    } else {
-      plot_ly(df, x = ~STRATUM_2, y = ~COUNT_VALUE, type = "scatter", mode = "lines+markers", 
-              #showspikes = TRUE,
-              source = "C") %>%
-        layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events"))
-    }
-  }
   
   .addConceptAnnotation <- function() {
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
@@ -1272,6 +1281,6 @@ shinyServer(function(input, output, session) {
     
     showNotification(sprintf("Value record deleted"))
   }
-  
+
 })
 

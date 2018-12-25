@@ -5,7 +5,6 @@ library(plotly)
 library(DT)
 library(shinydashboard)
 library(shinycssloaders)
-library(rclipboard)
 
 ui <- dashboardPage(
   dashboardHeader(title = "CDM Metadata", titleWidth = "300px",
@@ -55,11 +54,10 @@ ui <- dashboardPage(
     ),
     conditionalPanel(condition = "input.tabs == 'conceptKb'",
                      #checkboxInput(inputId = "toggleConcepts", label = "See only concepts with metadata", value = FALSE),
-                     selectInput(inputId = "domainId", label = "Domain",
-                                 choices = c("Condition" = 402, 
-                                             "Procedure" = 602, "Device" = 2101, "Drug" = 702, "Measurement" = 1801, "Observation" = 802)), 
+                     selectInput(inputId = "domainId", label = "Domain", selectize = TRUE,
+                                 choices = domainConceptIds), 
                      
-                     selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px",
+                     selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px", selectize = TRUE,
                                  choices = c())
                      )
   ),
@@ -80,7 +78,7 @@ ui <- dashboardPage(
       tabItem("conceptKb", 
               h3("Concept"),
               helpText("Create and view metadata about a concept"),
-              plotlyOutput(outputId = "conceptPlot") %>% withSpinner(color="#0dc5c1"),
+              plotlyOutput(outputId = "conceptKbPlot") %>% withSpinner(color = spinnerColor),
               verbatimTextOutput(outputId = "conceptName", placeholder = TRUE),
               dateInput(inputId = "conceptStartDate", label = "Temporal Event Start Date", value = "1900-01-01"),
               textAreaInput(inputId = "temporalEventValue", label = "Metadata Value", width = "800px"),
@@ -89,7 +87,7 @@ ui <- dashboardPage(
       tabItem("heelResults",
               h3("Achilles Heel Results"),
               helpText("Annotate and view Data Quality results from Achilles Heel"),
-              DT::dataTableOutput(outputId = "dtHeelResults") %>% withSpinner(color="#0dc5c1")
+              DT::dataTableOutput(outputId = "dtHeelResults") %>% withSpinner(color = spinnerColor)
               ),
       tabItem("conceptSetKb",
               h3("Concept Set Knowledge Base"),

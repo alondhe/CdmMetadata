@@ -16,8 +16,8 @@ Imports:
     dplyr,
     rjson,
     ParallelLogger,
-    plotly
-Suggests:
+    plotly,
+    shiny.router,
     R.utils,
     shiny (>= 1.2.0),
     DT,

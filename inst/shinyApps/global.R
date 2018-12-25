@@ -19,13 +19,14 @@ baseUrl <- jsonlite::read_json(path = Sys.getenv("jsonPath"))$baseUrl
 
 cdmSources <- jsonlite::read_json(path = Sys.getenv("jsonPath"))$sources
 
+rdsRoot <- file.path("data", "achilles_concepts")
 
-if (!dir.exists("data")) {
-  dir.create("data")
+if (!dir.exists(rdsRoot)) {
+  dir.create(rdsRoot, recursive = TRUE)
 }
 
 for (cdmSource in cdmSources) {
-  rdsFile <- file.path("data", sprintf("%s.rds", cdmSource$name))
+  rdsFile <- file.path(rdsRoot, sprintf("%s.rds", cdmSource$name))
   connectionDetails <- .getConnectionDetails(cdmSource)
   
   if (!file.exists(rdsFile)) {
@@ -46,3 +47,8 @@ siteSource <- list(
 )
   
 cdmSources <- c(siteSource, cdmSources)
+
+domainConceptIds <- c("Condition" = 402, 
+                      "Procedure" = 602, "Device" = 2101, "Drug" = 702, "Measurement" = 1801, "Observation" = 802)
+
+spinnerColor <- "#0dc5c1"
