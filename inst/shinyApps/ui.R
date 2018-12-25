@@ -29,7 +29,7 @@ ui <- dashboardPage(
                      ),
     sidebarMenu(
       id = "tabs",
-      menuItem("Sources Overview", tabName = "overview", icon = icon("play"), selected = TRUE),
+      menuItem("Sources Overview", tabName = "overview", icon = icon("sitemap"), selected = TRUE),
       menuItem("Source Provenance", tabName = "provenance", icon = icon("database")),
       menuItem("Heel Results", tabName = "heelResults", icon = icon("table")),
       menuItem("Concept Knowledge Base", tabName = "conceptKb", icon = icon("line-chart")),
@@ -73,7 +73,7 @@ ui <- dashboardPage(
               div(id = "overviewBoxes")
               ),
       tabItem("provenance",
-              h3("Source Provenance: ", textOutput(outputId = "sourceName")),
+              h3("Source Provenance"),
               helpText("Create and view metadata about the source's provenance"),
               div(id = "overviewBox")
               ),

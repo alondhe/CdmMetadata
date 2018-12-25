@@ -19,7 +19,7 @@ Imports:
     plotly
 Suggests:
     R.utils,
-    shiny,
+    shiny (>= 1.2.0),
     DT,
     shinydashboard,
     shinyWidgets,

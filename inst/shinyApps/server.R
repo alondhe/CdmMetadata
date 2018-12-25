@@ -7,22 +7,110 @@ library(shinyjs)
 
 shinyServer(function(input, output, session) {
   
-  .getConnectionDetails <- function(cdmSource) {
-    if (is.null(cdmSource$user)) {
-      connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
-                                                                      server = cdmSource$server,
-                                                                      port = cdmSource$port,
-                                                                      extraSettings = cdmSource$extraSettings)
+  # Reactives ---------------------------------------------------------------------
+  
+  currentSource <- reactive({
+    index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
+    cdmSources[[index]]
+  })
+  
+  connectionDetails <- reactive({
+    if (input$cdmSource != "All Sources") {
+      .getConnectionDetails(currentSource())
     } else {
-      connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
-                                                                      server = cdmSource$server,
-                                                                      port = cdmSource$port,
-                                                                      user = cdmSource$user,
-                                                                      password = cdmSource$password,
-                                                                      extraSettings = cdmSource$extraSettings)
+      NULL
     }
-    connectionDetails  
-  }
+  })
+  
+  resultsDatabaseSchema <- reactive({
+    if (input$cdmSource != "All Sources") {
+      currentSource()$resultsDatabaseSchema
+    } else {
+      NULL
+    }
+  })
+  
+  cdmDatabaseSchema <- reactive({
+    if (input$cdmSource != "All Sources") {
+      currentSource()$cdmDatabaseSchema
+    } else {
+      NULL
+    }
+  })
+  
+  vocabDatabaseSchema <- reactive({
+    if (input$cdmSource != "All Sources") {
+      currentSource()$vocabDatabaseSchema
+    } else {
+      NULL
+    }
+  })
+  
+  achillesConcepts <- reactive({
+    if (input$cdmSource != "All Sources") {
+      rdsFile <- file.path("data", sprintf("%s.rds", currentSource()$name))
+      readRDS(file = rdsFile)
+    } else {
+      NULL
+    }
+  })
+  
+  cohortDefinitions <- reactive({
+    url <- sprintf("%1s/cohortdefinition", baseUrl)
+    cohorts <- httr::content(httr::GET(url))
+    cohorts <- lapply(cohorts, function(c) {
+      data.frame(ID = c$id, Name = c$name)
+    })
+    do.call("rbind", cohorts)
+  })
+  
+  conceptSets <- reactive({
+    url <- sprintf("%1s/conceptset", baseUrl)
+    sets <- httr::content(httr::GET(url))
+    sets <- lapply(sets, function(c) {
+      data.frame(ID = c$id, Name = c$name)
+    })
+    do.call("rbind", sets)
+  })
+  
+  conceptPrevalence <- reactive({
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getPrevalence.sql", 
+                                             packageName = "CdmMetadata", 
+                                             dbms = connectionDetails()$dbms,
+                                             resultsDatabaseSchema = resultsDatabaseSchema(),
+                                             conceptId = input$conceptId,
+                                             analysisId = input$domainId)
+    
+    df <- DatabaseConnector::querySql(connection = connection, sql = sql)
+    if (nrow(df) > 0) {
+      df$STRATUM_2 <- as.Date(paste0(df$STRATUM_2, '01'), format='%Y%m%d')  
+    }
+    
+    df
+  })
+  
+  chartMeta <- reactive({
+    if (input$conceptId != "") {
+      connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+      on.exit(DatabaseConnector::disconnect(connection = connection))
+      
+      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getChartEntityActivity.sql", 
+                                               packageName = "CdmMetadata", 
+                                               dbms = connectionDetails()$dbms,
+                                               resultsDatabaseSchema = resultsDatabaseSchema(),
+                                               entityConceptId = input$conceptId)
+      
+      DatabaseConnector::querySql(connection = connection, sql = sql)
+    } else {
+      data.frame()
+    }
+  })
+  
+  # Source Queries ------------------------------------------------------
+  
   
   .getObservationPeriodDates <- function(connectionDetails,
                                          resultsDatabaseSchema) {
@@ -89,6 +177,27 @@ shinyServer(function(input, output, session) {
              }, session = session)
   }
   
+  # Observes ----------------------------------------------------------
+  
+  observe({
+    clicked <- event_data(event = "plotly_click", source = "C", session = session)
+    updateDateInput(session = session, inputId = "conceptStartDate", value = clicked$x)
+  })
+  
+  observe({
+    if (input$cdmSource != "All Sources") {
+      df <- .getAgents()  
+      humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
+      algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
+      
+      choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
+                                                                                 humans$AGENT_FIRST_NAME, sep = ", ")),
+                      `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
+      updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
+    }
+  })
+  
+  
   observe({
     if (input$cdmSource == "All Sources") {
       hide(selector = "#sidebarCollapsed li a[data-value=provenance]")
@@ -128,28 +237,46 @@ shinyServer(function(input, output, session) {
     }
   })
 
-  output$sourceName <- renderText({
-    input$cdmSource
-  })
   
-  cohortDefinitions <- reactive({
-    url <- sprintf("%1s/cohortdefinition", baseUrl)
-    cohorts <- httr::content(httr::GET(url))
-    cohorts <- lapply(cohorts, function(c) {
-      data.frame(ID = c$id, Name = c$name)
-    })
-    do.call("rbind", cohorts)
+  # Output DataTable renders ------------------------------------------
+  
+  output$dtHeelResults <- renderDataTable(expr = {
+    
+    input$btnSubmitHeel
+    input$btnDeleteHeel
+    
+    df <- .getHeelResults()
+    
+    df <- dplyr::arrange(df, ANALYSIS_ID) %>%
+      dplyr::select(`Analysis Id` = ANALYSIS_ID,
+                    `Rule Id` = RULE_ID,
+                    `Message` = ACHILLES_HEEL_WARNING,
+                    `Record Count` = RECORD_COUNT,
+                    `Heel Status` = ANNOTATION_AS_STRING,
+                    `Heel Annotation` = VALUE_AS_STRING,
+                    `Agent` = AGENT)
+    
+    options <- list(pageLength = 50,
+                    searching = TRUE,
+                    lengthChange = FALSE,
+                    ordering = TRUE,
+                    paging = TRUE,
+                    scrollY = '50vh')
+    selection <- list(mode = "single", target = "row")
+    
+    table <- datatable(df,
+                       options = options,
+                       selection = "single",
+                       rownames = FALSE, 
+                       class = "stripe nowrap compact", extensions = c("Responsive")) %>%
+      formatStyle("Heel Status", #"Warning Type",
+                  target = "row",
+                  backgroundColor = styleEqual(c("Non-issue", "Needs Review", "Issue"),
+                                               c("#e8f0ff", "#fffedb", "#ffdbdb")))
+    
+    table
   })
 
-  conceptSets <- reactive({
-    url <- sprintf("%1s/conceptset", baseUrl)
-    sets <- httr::content(httr::GET(url))
-    sets <- lapply(sets, function(c) {
-      data.frame(ID = c$id, Name = c$name)
-    })
-    do.call("rbind", sets)
-  })
-  
   output$dtCohortPicker <- renderDataTable({
     df <- cohortDefinitions()
 
@@ -210,42 +337,7 @@ shinyServer(function(input, output, session) {
   })
   
 
-  # Text Inputs ------------------------------------------------------
-  
-  agentTextInputs <- c("agentFirstName",
-                       "agentLastName",
-                       "agentSuffix",
-                       "agentAlgorithm",
-                       "agentDescription")
-  
-  entityActivityTextInputs <- c(
-    "entityConceptId",
-    "entityAsString", 
-    "entityIdentifier",
-    "activityConceptId",
-    "activityTypeConceptId",
-    "activityAsString"
-  )
-  
-  annotationTextInputs <- c(
-    "annotationConceptId",
-    "annotationTypeConceptId",
-    "securityConceptIdAnnotation"
-  )
-  
-  valueTextInputs <- function(suffix) {
-    lapply(c(
-      "valueOrdinal",
-      "valueConceptId",
-      "valueTypeConceptId",
-      "valueAsString",
-      "valueAsNumber",
-      "operatorConceptId"),  function(v) {
-        paste0(v, suffix)
-      })
-  }
 
-  agentChoices <- c("Human" = "1000", "Algorithm" = "2000")
 
   .clearTextInputs <- function(textInputNames, submitButtonId) {
     for (t in textInputNames) {
@@ -255,6 +347,8 @@ shinyServer(function(input, output, session) {
       updateActionButton(session = session, inputId = submitButtonId, label = "Add New")
     }
   }
+  
+  # Helpers ---------------------------------------------------
   
   .getMaxId <- function(tableName, fieldName) {
     
@@ -275,36 +369,8 @@ shinyServer(function(input, output, session) {
       as.integer(result$MAX_ID)
     }
   }
-  
-  .getSelectedAgentText <- function() {
-    if (is.null(input$dtAgent_rows_selected)) {
-      "No Agent Selected"
-    } else {
-      if (input$agentConceptId == 1000) {
-        sprintf("Human: %1s %2s (%3s)",
-                input$agentFirstName,
-                input$agentLastName,
-                input$agentSuffix)  
-      } else {
-        sprintf("Algorithm: %1s (%2s)",
-                input$agentAlgorithm,
-                input$agentDescription)  
-      }  
-    }
-  }
-  
-  .getSelectedEAText <- function() {
-    if (is.null(input$dtEntityActivity_rows_selected)) {
-      "No Entity/Activity Selected"
-    } else {
-      sprintf("<b>Entity</b>: %1s<br/>
-              <b>Activity</b>: %2s<br/>",
-              input$entityConceptId,
-              input$activityConceptId)  
-    }
-  }
-  
-  # exists functions ---------------------------------------------------------------
+
+  # Exists functions ---------------------------------------------------------------
   
   .agentRecordExists <- function() {
     df <- .getAgents() %>%
@@ -345,7 +411,7 @@ shinyServer(function(input, output, session) {
     nrow(df) > 0
   }
   
-  # query tables -----------------------------------------------------------------
+  # Query Metadata tables -----------------------------------------------------------------
   
   .getHeelResults <- function() {
     sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "heelResults/getHeels.sql", 
@@ -359,52 +425,10 @@ shinyServer(function(input, output, session) {
     DatabaseConnector::querySql(connection = connection, sql = sql)
   }
   
-  #.getConceptPrevalance <- function() {
-  
-  conceptPrevalence <- reactive({
-    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
-    on.exit(DatabaseConnector::disconnect(connection = connection))
-    
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getPrevalence.sql", 
-                                             packageName = "CdmMetadata", 
-                                             dbms = connectionDetails()$dbms,
-                                             resultsDatabaseSchema = resultsDatabaseSchema(),
-                                             conceptId = input$conceptId,
-                                             analysisId = input$domainId)
-    
-    df <- DatabaseConnector::querySql(connection = connection, sql = sql)
-    if (nrow(df) > 0) {
-      df$STRATUM_2 <- as.Date(paste0(df$STRATUM_2, '01'), format='%Y%m%d')  
-    }
-    
-    df
-  })
-  
-  chartMeta <- reactive({
-  #.getChartMeta <- function() {
-    if (input$conceptId != "") {
-      connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
-      on.exit(DatabaseConnector::disconnect(connection = connection))
-      
-      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getChartEntityActivity.sql", 
-                                               packageName = "CdmMetadata", 
-                                               dbms = connectionDetails()$dbms,
-                                               resultsDatabaseSchema = resultsDatabaseSchema(),
-                                               entityConceptId = input$conceptId)
-      
-      DatabaseConnector::querySql(connection = connection, sql = sql)
-    } else {
-      data.frame()
-    }
-  })
-  
   .getAgents <- function() {
 
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
     on.exit(DatabaseConnector::disconnect(connection = connection))
-    # if (is.null(metaAgentConceptId)) {
-    #   metaAgentConceptId <- input$agentConceptId
-    # }
     
     sql <- SqlRender::renderSql("select * from @resultsDatabaseSchema.meta_agent
                                 order by meta_agent_id;",
@@ -495,86 +519,9 @@ shinyServer(function(input, output, session) {
     df
   }
   
+
   
-  # reactives -----------------------------------------------------------------
-  
-  connectionDetails <- reactive({
-    if (input$cdmSource != "All Sources") {
-      index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
-      cdmSource <- cdmSources[[index]]
-      
-      .getConnectionDetails(cdmSource)
-     
-    } else {
-      NULL
-    }
-  })
-  
-  resultsDatabaseSchema <- reactive({
-    if (input$cdmSource != "All Sources") {
-      index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
-      cdmSource <- cdmSources[[index]]
-      cdmSource$resultsDatabaseSchema
-    } else {
-      NULL
-    }
-  })
-  
-  cdmDatabaseSchema <- reactive({
-    if (input$cdmSource != "All Sources") {
-      index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
-      cdmSource <- cdmSources[[index]]
-      cdmSource$cdmDatabaseSchema
-    } else {
-      NULL
-    }
-  })
-  
-  vocabDatabaseSchema <- reactive({
-    if (input$cdmSource != "All Sources") {
-      index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
-      cdmSource <- cdmSources[[index]]
-      cdmSource$vocabDatabaseSchema
-    } else {
-      NULL
-    }
-  })
-  
-  achillesConcepts <- reactive({
-    if (input$cdmSource != "All Sources") {
-      # index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
-      # cdmSource <- cdmSources[[index]]
-      
-      # rdsFile <- file.path("data", sprintf("%s.rds", cdmSource$name))
-      # if (file.exists(rdsFile)) {
-      #   df <- readRDS(rdsFile)
-      # } else {
-        sql <- SqlRender::renderSql("select distinct A.analysis_id, A.stratum_1, B.concept_name, B.concept_id from @resultsDatabaseSchema.achilles_results A
-                                    join @vocabDatabaseSchema.concept B on cast(stratum_1 as integer) = B.concept_id
-                                    and B.concept_id <> 0
-                                    where A.analysis_id in (402,602,2101,702,1801,802);",
-                                    resultsDatabaseSchema = resultsDatabaseSchema(),
-                                    vocabDatabaseSchema = vocabDatabaseSchema())$sql
-        sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
-        connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
-        on.exit(DatabaseConnector::disconnect(connection = connection))
-        df <- DatabaseConnector::querySql(connection = connection, sql = sql) 
-      #   if (!dir.exists(dirname(rdsFile))) {
-      #     dir.create(path = dirname(rdsFile), recursive = TRUE)
-      #   }
-      #   
-      #   saveRDS(object = df, file = rdsFile)
-      # }
-      
-      df
-    } else {
-      NULL
-    }
-  })
-  
-  # input rendering ------------------------------------------------------------
-  
-  # output rendering -----------------------------------------------------------
+  # Output Text Renders -----------------------------------------------------------
   
   output$conceptName <- renderText({
     
@@ -583,42 +530,236 @@ shinyServer(function(input, output, session) {
           df$CONCEPT_NAME[df$CONCEPT_ID == input$conceptId], sep = " - ")
   })
   
-  output$dtHeelResults <- renderDataTable(expr = {
-    
-    input$btnSubmitHeel
-    input$btnDeleteHeel
-    
-    df <- .getHeelResults()
-    
-    df <- dplyr::arrange(df, ANALYSIS_ID) %>%
-      dplyr::select(`Analysis Id` = ANALYSIS_ID,
-                    `Rule Id` = RULE_ID,
-                    `Message` = ACHILLES_HEEL_WARNING,
-                    `Record Count` = RECORD_COUNT,
-                    `Heel Status` = ANNOTATION_AS_STRING,
-                    `Heel Annotation` = VALUE_AS_STRING,
-                    `Agent` = AGENT)
-    
-    options <- list(pageLength = 50,
-                    searching = TRUE,
-                    lengthChange = FALSE,
-                    ordering = TRUE,
-                    paging = TRUE,
-                    scrollY = '50vh')
-    selection <- list(mode = "single", target = "row")
-
-    table <- datatable(df,
-                       options = options,
-                       selection = "single",
-                       rownames = FALSE, 
-                       class = "stripe nowrap compact", extensions = c("Responsive")) %>%
-      formatStyle("Heel Status", #"Warning Type",
-                  target = "row",
-                  backgroundColor = styleEqual(c("Non-issue", "Needs Review", "Issue"),
-                                               c("#e8f0ff", "#fffedb", "#ffdbdb")))
-    
-    table
+  output$selectedConcept <- renderText({
+    input$conceptId
   })
+  
+  # Output Plotly Renders ---------------------------------------------------
+  
+  output$conceptPlot <- renderPlotly({
+    input$btnAddTemporalAnnotation
+    .refreshConceptPlot()
+  })
+  
+  # Observe Events ------------------------------------------------------
+  
+  observeEvent(eventExpr = input$dtHeelResults_rows_selected, handlerExpr = {
+    row_count <- input$dtHeelResults_rows_selected
+    annotationAsString <- .getHeelResults()[row_count,]$ANNOTATION_AS_STRING
+    
+    valueAsString <- .getHeelResults()[row_count,]$VALUE_AS_STRING
+    if (!is.na(annotationAsString)) {
+      updateSelectInput(session = session, inputId = "heelStatus", selected = annotationAsString)
+    }
+    if (!is.na(valueAsString)) {
+      updateTextInput(session = session, inputId = "heelAnnotation", value = valueAsString)
+    }
+  })
+  
+  observeEvent(eventExpr = input$btnDeleteHeel, handlerExpr = {
+    .deleteHeelAnnotation()
+    updateTextInput(session = session, inputId = "heelAnnotation", value = "")
+    updateSelectInput(session = session, inputId = "heelStatus", selected = "")
+  }, priority = 1)
+  
+  observeEvent(eventExpr = input$btnSubmitHeel, handlerExpr = {
+    if (input$heelStatus == "Needs Review" | input$heelAnnotation == "") {
+      showNotification(ui = "Please change Heel Status and add Annotation", type = "error")
+    } else {
+      row_count <- input$dtHeelResults_rows_selected
+      newAnnotation <- .getHeelResults()[row_count,]$ANNOTATION_AS_STRING == "Needs Review"
+      
+      if (!newAnnotation) {
+        .updateHeelAnnotation()
+      } else {
+        .addHeelAnnotation()
+      }
+      updateTextInput(session = session, inputId = "heelAnnotation", value = "")
+      updateSelectInput(session = session, inputId = "heelStatus", selected = "")
+    }
+  }, priority = 1)
+  
+  observeEvent(input$btnAddNewAgent, handlerExpr = {
+    showModal(modalDialog(
+      title = "Add New Agent",
+      selectInput(inputId = "agentConceptId", label = "Agent Type", 
+                  choices = c("Human" = 1000, "Algorithm" = 2000), width = "250px"),
+      conditionalPanel(condition = "input.agentConceptId == 1000",
+                       textInput(inputId = "agentFirstName", label = "First Name", width = "250px"),
+                       textInput(inputId = "agentLastName", label = "Last Name", width = "250px"),
+                       textInput(inputId = "agentSuffix", label = "Suffix", width = "250px")
+      ),
+      conditionalPanel(condition = "input.agentConceptId == 2000",
+                       textInput(inputId = "agentAlgorithm", label = "Algorithm Name", width = "250px"),
+                       textAreaInput(inputId = "agentDescription", label = "Description", 
+                                     rows = 4, resize = "none", width = "250px")
+      ),
+      actionButton(inputId = "btnSubmitAgent", label = "Add New", icon = icon("check")),
+      width = 3)
+    )
+  }, priority = 1)
+  
+  observeEvent(input$btnDeleteAgent, handlerExpr = {
+    
+    showModal(
+      modalDialog(
+        title = "Delete Agent",
+        "Are you sure you want to delete this agent?",
+        actionButton(inputId = "btnConfirmDeleteAgent", label = "Yes, delete this agent")
+      )
+    )
+  }, priority = 1)
+  
+  observeEvent(input$btnConfirmDeleteAgent, handlerExpr = {
+    .deleteAgent(input$selectAgent)
+    df <- .getAgents()
+    humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
+    algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
+    choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
+                                                                               humans$AGENT_FIRST_NAME, sep = ", ")),
+                    `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
+    updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
+    removeModal(session = session)
+  }, priority = 1)
+  
+  observeEvent(input$btnEditAgent, handlerExpr = {
+    
+    df <- .getAgents()
+    thisAgent <- df[df$META_AGENT_ID == input$selectAgent, ]
+    
+    if (thisAgent$META_AGENT_CONCEPT_ID == 1000) {
+      showModal(modalDialog(
+        title = "Edit Agent",
+        textInput(inputId = "agentFirstName", label = "First Name", width = "250px"),
+        textInput(inputId = "agentLastName", label = "Last Name", width = "250px"),
+        textInput(inputId = "agentSuffix", label = "Suffix", width = "250px"),
+        actionButton(inputId = "btnUpdateAgent", label = "Submit Changes", icon = icon("check"))
+      ))
+      updateTextInput(session = session, inputId = "agentFirstName", value = thisAgent$AGENT_FIRST_NAME)
+      updateTextInput(session = session, inputId = "agentLastName", value = thisAgent$AGENT_LAST_NAME)
+      updateTextInput(session = session, inputId = "agentSuffix", value = thisAgent$AGENT_SUFFIX)
+    } else {
+      showModal(modalDialog(
+        title = "Edit Agent",
+        textInput(inputId = "agentAlgorithm", label = "Algorithm Name", width = "250px"),
+        textAreaInput(inputId = "agentDescription", label = "Description", 
+                      rows = 4, resize = "none", width = "250px"),
+        actionButton(inputId = "btnUpdateAgent", label = "Submit Changes", icon = icon("check"))
+      ))
+      updateTextInput(session = session, inputId = "agentAlgorithm", value = thisAgent$AGENT_ALGORITHM)
+      updateTextInput(session = session, inputId = "agentDescription", value = thisAgent$AGENT_DESCRIPTION)
+    }
+  }, priority = 1)
+  
+  observeEvent(input$btnUpdateAgent, handlerExpr = {
+    df <- .getAgents()
+    metaAgentConceptId <- df$META_AGENT_CONCEPT_ID[df$META_AGENT_ID == input$selectAgent]
+    
+    agentFirstName <- ""
+    agentLastName <- ""
+    agentSuffix <- ""
+    agentAlgorithm <- ""
+    agentDescription <- ""
+    metaAgentId <- input$selectAgent
+    
+    if (metaAgentConceptId == 1000) {
+      agentFirstName <- input$agentFirstName
+      agentLastName <- input$agentLastName
+      agentSuffix <- input$agentSuffix
+    } else {
+      agentAlgorithm <- input$agentAlgorithm
+      agentDescription <- input$agentDescription
+    }
+    
+    .updateAgent(agentFirstName = agentFirstName,
+                 agentLastName = agentLastName,
+                 agentSuffix = agentSuffix,
+                 agentAlgorithm = agentAlgorithm,
+                 agentDescription = agentDescription,
+                 metaAgentId = metaAgentId
+    )
+  }, priority = 1)
+  
+  observeEvent(eventExpr = input$btnSubmitAgent, handlerExpr = {
+    .addAgent()
+    df <- .getAgents()
+    humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
+    algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
+    choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
+                                                                               humans$AGENT_FIRST_NAME, sep = ", ")),
+                    `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
+    updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
+    removeModal(session = session)
+  }, priority = 1)
+  
+  observeEvent(eventExpr = input$dtAgent_rows_selected, handlerExpr = {
+    updateActionButton(session = session, inputId = "btnSubmitAgent", label = "Update Selected")
+    row_count <- input$dtAgent_rows_selected
+    
+    if (.getAgents()[row_count,]$META_AGENT_CONCEPT_ID == 1000) {
+      updateSelectInput(session = session, inputId = "agentConcept", selected = agentChoices[1])
+    } else {
+      updateSelectInput(session = session, inputId = "agentConcept", selected = agentChoices[2])
+    }
+    
+    for (t in agentTextInputs) {
+      updateTextInput(session = session,
+                      inputId = t,
+                      value = .getAgents()[row_count,][toupper(SqlRender::camelCaseToSnakeCase(t))][[1]])
+    }
+    
+  })
+  
+  observeEvent(input$btnAddTemporalAnnotation, handlerExpr = {
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    metaEntityActivityId <- .getMaxId("meta_entity_activity", "meta_entity_activity_id") + 1
+    
+    df <- data.frame(
+      meta_entity_activity_Id = metaEntityActivityId,
+      meta_agent_id = as.integer(input$selectAgent),
+      entity_concept_Id = as.integer(input$conceptId),
+      entity_as_string = NA,
+      entity_identifier = NA,
+      activity_concept_id = 0,
+      activity_type_concept_id = 0,
+      activity_as_string = "Temporal Event",
+      activity_start_date = input$conceptStartDate,
+      activity_end_date = input$conceptStartDate,
+      security_concept_id = 0
+    )
+    
+    DatabaseConnector::insertTable(connection = connection, 
+                                   tableName = sprintf("%s.meta_entity_activity", resultsDatabaseSchema()),
+                                   data = df, dropTableIfExists = F, createTable = F, useMppBulkLoad = F)
+    
+    metaValueId <- .getMaxId(tableName = "meta_value",
+                             fieldName = "meta_value_id") + 1
+    
+    value <- data.frame(
+      meta_value_id = metaValueId,
+      value_ordinal = 1, 
+      meta_entity_activity_id = metaEntityActivityId,
+      meta_annotation_id = NA,
+      value_concept_id = 0,
+      value_type_concept_id = 0,
+      value_as_string = input$temporalEventValue,
+      value_as_number = NA,
+      operator_concept_id = 0
+    )
+    
+    DatabaseConnector::insertTable(connection = connection, 
+                                   tableName = sprintf("%s.meta_value", resultsDatabaseSchema()), 
+                                   data = value, 
+                                   dropTableIfExists = F, createTable = F)
+    
+    
+    #.refreshConceptPlot()
+    
+    showNotification(sprintf("New Temporal Event added"))
+    
+  }, priority = 1)
 
   observeEvent(input$toggleConcepts, {
     
@@ -649,159 +790,11 @@ shinyServer(function(input, output, session) {
     updateSelectInput(session = session, inputId = "conceptId", choices = choices)
   })
   
-  output$selectedConcept <- renderText({
-    input$conceptId
-  })
-  
-  output$conceptPlot <- renderPlotly({
-    input$btnAddTemporalAnnotation
-    .refreshConceptPlot()
-  })
-  
-  output$dtAgent <- renderDataTable({
-    input$selectAgent
-    input$btnSubmitAgent
-    input$btnDeleteAgent
-    
-    if (input$agentConceptId == 1000) {
-      df <- .getAgents() %>%
-        dplyr::select(AGENT_FIRST_NAME,
-                      AGENT_LAST_NAME,
-                      AGENT_SUFFIX)
-      colnames <- c("First Name", "Last Name", "Suffix")
-    } else {
-      df <- .getAgents() %>%
-        dplyr::select(AGENT_ALGORITHM,
-                      AGENT_DESCRIPTION)
-      colnames <- c("Algorithm Name", "Algorithm Description")
-    }
-    
-    
-    
-    options <- list(pageLength = 10000,
-                    searching = TRUE,
-                    lengthChange = FALSE,
-                    ordering = TRUE,
-                    paging = FALSE,
-                    scrollY = '75vh')
-    selection <- list(mode = "single", target = "row")
 
-    table <- datatable(df,
-                       options = options,
-                       selection = "single",
-                       rownames = FALSE, colnames = colnames,
-                       class = "stripe nowrap compact", extensions = c("Responsive"))
-    table <- formatStyle(table = table,
-                         columns = ncol(df),
-                         target = "row")
-    table
-  }, server = FALSE)
   
+
   
-  output$dtEntityActivity <- renderDataTable({
-    input$btnClearAgent
-    input$btnSubmitEA
-    input$btnDeleteEA
-    df <- .getEntityActivities()
-    
-    if (!is.null(df)) {
-      df <- dplyr::select(df, 
-                          ENTITY_CONCEPT_ID,
-                          ENTITY_AS_STRING,
-                          ENTITY_IDENTIFIER,
-                          ACTIVITY_CONCEPT_ID,
-                          ACTIVITY_TYPE_CONCEPT_ID,
-                          ACTIVITY_AS_STRING,
-                          ACTIVITY_START_DATE,
-                          ACTIVITY_END_DATE,
-                          SECURITY_CONCEPT_ID)
-      
-      colnames <- c("Entity Concept Id", 
-                    "Entity As String",
-                    "Entity Identifier",
-                    "Activity Concept Id",
-                    "Activity Type Concept Id",
-                    "Activity As String",
-                    "Activity Start Date",
-                    "Activity End Date",
-                    "Security Concept Id")
-      
-      options <- list(pageLength = 10000,
-                      searching = TRUE,
-                      lengthChange = FALSE,
-                      ordering = TRUE,
-                      paging = FALSE,
-                      scrollY = '75vh')
-      selection <- list(mode = "single", target = "row")
-      
-      table <- datatable(df,
-                         options = options,
-                         selection = "single",
-                         rownames = FALSE, colnames = colnames,
-                         class = "stripe nowrap compact", extensions = c("Responsive"))
-      table <- formatStyle(table = table,
-                           columns = ncol(df),
-                           target = "row")
-      table  
-    }
-  }, server = FALSE)
-  
-  output$dtAnnotation <- renderDataTable({
-    input$btnClearAnnotation
-    input$btnSubmitAnnotation
-    input$btnDeleteAnnotation
-    df <- .getAnnotations()
-    
-    if (!is.null(df)) {
-      options <- list(pageLength = 10000,
-                      searching = TRUE,
-                      lengthChange = FALSE,
-                      ordering = TRUE,
-                      paging = FALSE,
-                      scrollY = '75vh')
-      selection <- list(mode = "single", target = "row")
-      
-      table <- datatable(df,
-                         options = options,
-                         selection = "single",
-                         rownames = FALSE,
-                         class = "stripe nowrap compact", extensions = c("Responsive"))
-      table <- formatStyle(table = table,
-                           columns = ncol(df),
-                           target = "row")
-      table  
-    }
-  }, server = FALSE)
-  
-  output$dtValueEA <- renderDataTable({
-    input$btnClearValueEA
-    input$btnSubmitValueEA
-    input$btnDeleteValueEA
-    df <- .getValues()
-    
-    if (!is.null(df)) {
-      options <- list(pageLength = 10000,
-                      searching = TRUE,
-                      lengthChange = FALSE,
-                      ordering = TRUE,
-                      paging = FALSE,
-                      scrollY = '75vh')
-      selection <- list(mode = "single", target = "row")
-      
-      table <- datatable(df,
-                         options = options,
-                         selection = "single",
-                         rownames = FALSE,
-                         class = "stripe nowrap compact", extensions = c("Responsive"))
-      table <- formatStyle(table = table,
-                           columns = ncol(df),
-                           target = "row")
-      table  
-    }
-  }, server = FALSE)
-  
-  
-  # crud operations -----------------------------------------------------------
+  # Crud operations -----------------------------------------------------------
   
   .refreshConceptPlot <- function() {
     df <- conceptPrevalence() # .getConceptPrevalance()
@@ -911,10 +904,6 @@ shinyServer(function(input, output, session) {
       security_concept_id = 0
     )
     
-    # matches <- .getEntityActivities(FALSE) %>%
-    #   dplyr::filter(ACTIVITY_AS_STRING == .getHeelResults()[row_count,]$ACHILLES_HEEL_WARNING)
-    # 
-    # if (nrow(matches) == 0) {
     DatabaseConnector::insertTable(connection = connection, 
                                    tableName = sprintf("%s.meta_entity_activity", resultsDatabaseSchema()), 
                                    data = entityActivity, 
@@ -959,8 +948,6 @@ shinyServer(function(input, output, session) {
                                    dropTableIfExists = F, createTable = F)
     
     showNotification(sprintf("New Heel Annotation added"))
-      #}
-    #}
   }
   
   .updateHeelAnnotation <- function() {
@@ -1188,7 +1175,7 @@ shinyServer(function(input, output, session) {
                                              activityEndDate = input$activityDates[2],
                                              securityConceptId = input$securityConceptIdEA,
                                              metaEntityActivityId = .getEntityActivities()[row_count,]$META_ENTITY_ACTIVITY_ID)
-    cat(sql)
+    
     DatabaseConnector::executeSql(connection = connection, sql = sql)
     
     showNotification(sprintf("Entity/Activity record updated"))
@@ -1286,428 +1273,5 @@ shinyServer(function(input, output, session) {
     showNotification(sprintf("Value record deleted"))
   }
   
-  # Add New Agent Events ---------------------------------------
-  
-  observeEvent(input$btnAddNewAgent, handlerExpr = {
-    showModal(modalDialog(
-      title = "Add New Agent",
-      selectInput(inputId = "agentConceptId", label = "Agent Type", 
-                  choices = c("Human" = 1000, "Algorithm" = 2000), width = "250px"),
-      conditionalPanel(condition = "input.agentConceptId == 1000",
-                       textInput(inputId = "agentFirstName", label = "First Name", width = "250px"),
-                       textInput(inputId = "agentLastName", label = "Last Name", width = "250px"),
-                       textInput(inputId = "agentSuffix", label = "Suffix", width = "250px")
-      ),
-      conditionalPanel(condition = "input.agentConceptId == 2000",
-                       textInput(inputId = "agentAlgorithm", label = "Algorithm Name", width = "250px"),
-                       textAreaInput(inputId = "agentDescription", label = "Description", 
-                                     rows = 4, resize = "none", width = "250px")
-      ),
-      actionButton(inputId = "btnSubmitAgent", label = "Add New", icon = icon("check")),
-      width = 3)
-    )
-  }, priority = 1)
-  
-  observeEvent(input$btnDeleteAgent, handlerExpr = {
-    
-    showModal(
-      modalDialog(
-        title = "Delete Agent",
-        "Are you sure you want to delete this agent?",
-        actionButton(inputId = "btnConfirmDeleteAgent", label = "Yes, delete this agent")
-      )
-    )
-  }, priority = 1)
-  
-  observeEvent(input$btnConfirmDeleteAgent, handlerExpr = {
-    .deleteAgent(input$selectAgent)
-    df <- .getAgents()
-    humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
-    algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
-    choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
-                                                                               humans$AGENT_FIRST_NAME, sep = ", ")),
-                    `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
-    updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
-    removeModal(session = session)
-  }, priority = 1)
-  
-  observeEvent(input$btnEditAgent, handlerExpr = {
-    
-    df <- .getAgents()
-    thisAgent <- df[df$META_AGENT_ID == input$selectAgent, ]
-    
-    if (thisAgent$META_AGENT_CONCEPT_ID == 1000) {
-      showModal(modalDialog(
-        title = "Edit Agent",
-        textInput(inputId = "agentFirstName", label = "First Name", width = "250px"),
-        textInput(inputId = "agentLastName", label = "Last Name", width = "250px"),
-        textInput(inputId = "agentSuffix", label = "Suffix", width = "250px"),
-        actionButton(inputId = "btnUpdateAgent", label = "Submit Changes", icon = icon("check"))
-        ))
-      updateTextInput(session = session, inputId = "agentFirstName", value = thisAgent$AGENT_FIRST_NAME)
-      updateTextInput(session = session, inputId = "agentLastName", value = thisAgent$AGENT_LAST_NAME)
-      updateTextInput(session = session, inputId = "agentSuffix", value = thisAgent$AGENT_SUFFIX)
-    } else {
-      showModal(modalDialog(
-        title = "Edit Agent",
-        textInput(inputId = "agentAlgorithm", label = "Algorithm Name", width = "250px"),
-        textAreaInput(inputId = "agentDescription", label = "Description", 
-                      rows = 4, resize = "none", width = "250px"),
-        actionButton(inputId = "btnUpdateAgent", label = "Submit Changes", icon = icon("check"))
-      ))
-      updateTextInput(session = session, inputId = "agentAlgorithm", value = thisAgent$AGENT_ALGORITHM)
-      updateTextInput(session = session, inputId = "agentDescription", value = thisAgent$AGENT_DESCRIPTION)
-    }
-  }, priority = 1)
-  
-  observeEvent(input$btnUpdateAgent, handlerExpr = {
-    df <- .getAgents()
-    metaAgentConceptId <- df$META_AGENT_CONCEPT_ID[df$META_AGENT_ID == input$selectAgent]
-    
-    agentFirstName <- ""
-    agentLastName <- ""
-    agentSuffix <- ""
-    agentAlgorithm <- ""
-    agentDescription <- ""
-    metaAgentId <- input$selectAgent
-    
-    if (metaAgentConceptId == 1000) {
-      agentFirstName <- input$agentFirstName
-      agentLastName <- input$agentLastName
-      agentSuffix <- input$agentSuffix
-    } else {
-      agentAlgorithm <- input$agentAlgorithm
-      agentDescription <- input$agentDescription
-    }
-    
-    .updateAgent(agentFirstName = agentFirstName,
-                 agentLastName = agentLastName,
-                 agentSuffix = agentSuffix,
-                 agentAlgorithm = agentAlgorithm,
-                 agentDescription = agentDescription,
-                 metaAgentId = metaAgentId
-                 )
-  }, priority = 1)
-  
-  # Annotate Temporal Events -----------------------------------
-  
-  observe({
-    clicked <- event_data(event = "plotly_click", source = "C", session = session)
-    updateDateInput(session = session, inputId = "conceptStartDate", value = clicked$x)
-  })
-  
-  observeEvent(input$btnAddTemporalAnnotation, handlerExpr = {
-    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
-    on.exit(DatabaseConnector::disconnect(connection = connection))
-    
-    metaEntityActivityId <- .getMaxId("meta_entity_activity", "meta_entity_activity_id") + 1
-    
-    df <- data.frame(
-      meta_entity_activity_Id = metaEntityActivityId,
-      meta_agent_id = as.integer(input$selectAgent),
-      entity_concept_Id = as.integer(input$conceptId),
-      entity_as_string = NA,
-      entity_identifier = NA,
-      activity_concept_id = 0,
-      activity_type_concept_id = 0,
-      activity_as_string = "Temporal Event",
-      activity_start_date = input$conceptStartDate,
-      activity_end_date = input$conceptStartDate,
-      security_concept_id = 0
-    )
-    
-    DatabaseConnector::insertTable(connection = connection, 
-                                   tableName = sprintf("%s.meta_entity_activity", resultsDatabaseSchema()),
-                                   data = df, dropTableIfExists = F, createTable = F, useMppBulkLoad = F)
-    
-    metaValueId <- .getMaxId(tableName = "meta_value",
-                             fieldName = "meta_value_id") + 1
-    
-    value <- data.frame(
-      meta_value_id = metaValueId,
-      value_ordinal = 1, 
-      meta_entity_activity_id = metaEntityActivityId,
-      meta_annotation_id = NA,
-      value_concept_id = 0,
-      value_type_concept_id = 0,
-      value_as_string = input$temporalEventValue,
-      value_as_number = NA,
-      operator_concept_id = 0
-    )
-    
-    DatabaseConnector::insertTable(connection = connection, 
-                                   tableName = sprintf("%s.meta_value", resultsDatabaseSchema()), 
-                                   data = value, 
-                                   dropTableIfExists = F, createTable = F)
-    
-    
-    #.refreshConceptPlot()
-    
-    showNotification(sprintf("New Temporal Event added"))
-    
-  }, priority = 1)
-  
-  # Agent Events -----------------------------------------------
-  
-  
-  observeEvent(eventExpr = input$btnSubmitAgent, handlerExpr = {
-    .addAgent()
-    df <- .getAgents()
-    humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
-    algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
-    choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
-                                                                               humans$AGENT_FIRST_NAME, sep = ", ")),
-                    `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
-    updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
-    removeModal(session = session)
-  }, priority = 1)
-  
-  observeEvent(eventExpr = input$dtAgent_rows_selected, handlerExpr = {
-    updateActionButton(session = session, inputId = "btnSubmitAgent", label = "Update Selected")
-    row_count <- input$dtAgent_rows_selected
-    
-    if (.getAgents()[row_count,]$META_AGENT_CONCEPT_ID == 1000) {
-      updateSelectInput(session = session, inputId = "agentConcept", selected = agentChoices[1])
-    } else {
-      updateSelectInput(session = session, inputId = "agentConcept", selected = agentChoices[2])
-    }
-    
-    for (t in agentTextInputs) {
-      updateTextInput(session = session,
-                      inputId = t,
-                      value = .getAgents()[row_count,][toupper(SqlRender::camelCaseToSnakeCase(t))][[1]])
-    }
-    
-  })
-  
-  # Entity Activity Events ---------------------------------------
-  
-  observeEvent(eventExpr = input$btnClearEA, handlerExpr = {
-    .clearTextInputs(entityActivityTextInputs, "btnSubmitEA")
-    selectRows(proxy = dtEAProxy, selected = NULL)
-    selectRows(proxy = dtAnnotationProxy, selected = NULL)
-    selectRows(proxy = dtValueAnnProxy, selected = NULL)
-    selectRows(proxy = dtValueEAProxy, selected = NULL)
-    showNotification("Entity/Activity record de-selected")
-  })
-  
-  observeEvent(input$btnDeleteEA, handlerExpr = {
-    .deleteEntityActivity()
-    .clearTextInputs(agentTextInputs, "btnSubmitEA")
-  }, priority = 1)
-  
-  observeEvent(eventExpr = input$btnSubmitEA, handlerExpr = {
-    selected <- !is.null(input$dtEntityActivity_rows_selected)
-    if (selected) {
-      .updateEntityActivity()
-    } else {
-      .addEntityActivity()
-    }
-    .clearTextInputs(entityActivityTextInputs, "btnSubmitEA")
-  }, priority = 1)
-  
-  
-  observeEvent(eventExpr = input$dtEntityActivity_rows_selected, handlerExpr = {
-    updateActionButton(session = session, inputId = "btnSubmitEA", label = "Update Selected")
-    row_count <- input$dtEntityActivity_rows_selected
-    
-    for (t in entityActivityTextInputs) {
-      updateTextInput(session = session,
-                      inputId = t,
-                      value = .getEntityActivities()[row_count,][toupper(SqlRender::camelCaseToSnakeCase(t))][[1]])
-    }
-  })
-  
-
-  # Annotation Events -----------------------------------
-
-  observeEvent(eventExpr = input$btnClearAnnotation, handlerExpr = {
-    .clearTextInputs(annotationTextInputs, "btnSubmitAnnotation")
-    showNotification("Annotation record de-selected")
-  })
-  
-  observeEvent(eventExpr = input$btnSubmitAnnotation, handlerExpr = {
-    selected <- !is.null(input$dtAnnotation_rows_selected)
-    if (selected) {
-      .updateAnnotation()
-    } else {
-      .addAnnotation()
-    }
-    .clearTextInputs(annotationTextInputs, "btnSubmitAnnotation")
-  }, priority = 1)
-  
-  observeEvent(input$btnDeleteAnnotation, handlerExpr = {
-    .deleteAnnotation()
-    .clearTextInputs(agentTextInputs, "btnSubmitEA")
-  }, priority = 1)
-  
-  observeEvent(eventExpr = input$dtAnnotation_rows_selected, handlerExpr = {
-    updateActionButton(session = session, inputId = "btnSubmitAnnotation", label = "Update Selected")
-    row_count <- input$dtAnnotation_rows_selected
-    
-    for (t in annotationTextInputs) {
-      updateTextInput(session = session,
-                      inputId = t,
-                      value = .getAnnotations()[row_count,][toupper(SqlRender::camelCaseToSnakeCase(t))][[1]])
-    }
-  })
-  
-  # EA Value Events --------------------------------------------------
-  
-  observeEvent(eventExpr = input$btnClearValueEA, handlerExpr = {
-    .clearTextInputs(entityActivityTextInputs, "btnSubmitValueEA")
-    showNotification("Value record de-selected")
-  })
-  
-  observeEvent(eventExpr = input$btnSubmitValueEA, handlerExpr = {
-    row_count <- input$dtEntityActivity_rows_selected
-    metaEntityActivityId <- .getEntityActivities()[row_count,]$META_ENTITY_ACTIVITY_ID
-    
-    selected <- !is.null(input$dtValueEA_rows_selected)
-    if (selected) {
-      row_count <- input$dtValueEA_rows_selected
-      metaValueId <- .getValues()[row_count,]$META_VALUE_ID
-      .updateValue(metaValueId)
-    } else {
-      .addValue(metaEntityActivityId)
-    }
-    .clearTextInputs(valueTextInputs("EA"), "btnSubmitValueEA")
-  }, priority = 1)
-  
-  observeEvent(input$btnDeleteValueEA, handlerExpr = {
-    row_count <- input$dtValueEA_rows_selected
-    metaValueId <- .getValues()[row_count,]$META_VALUE_ID
-    
-    .deleteValue(metaValueId)
-    .clearTextInputs(agentTextInputs, "btnSubmitValueEA")
-  }, priority = 1)
-  
-  observeEvent(eventExpr = input$dtValueEA_rows_selected, handlerExpr = {
-    updateActionButton(session = session, inputId = "btnSubmitValueEA", label = "Update Selected")
-    row_count <- input$dtValueEA_rows_selected
-    
-    for (t in valueTextInputs("EA")) {
-      t <- gsub(pattern = "EA", replacement = "", x = t)
-      updateTextInput(session = session,
-                      inputId = t,
-                      value = .getValues()[row_count,][toupper(SqlRender::camelCaseToSnakeCase(t))][[1]])
-    }
-  })
-  
-  # Annotation Value Events --------------------------------------------------
-  
-  observeEvent(eventExpr = input$btnClearValueAnn, handlerExpr = {
-    .clearTextInputs(entityActivityTextInputs, "btnSubmitValueAnn")
-    showNotification("Value record de-selected")
-  })
-  
-  observeEvent(eventExpr = input$btnSubmitValueAnn, handlerExpr = {
-    row_count <- input$dtEntityActivity_rows_selected
-    metaEntityActivityId <- .getEntityActivities()[row_count,]$META_ENTITY_ACTIVITY_ID
-    
-    selected <- !is.null(input$dtValueAnnotation_rows_selected)
-    if (selected) {
-      row_count <- input$dtValueEA_rows_selected
-      metaValueId <- .getValues()[row_count,]$META_VALUE_ID
-      .updateValue(metaValueId, TRUE)
-    } else {
-      row_count <- input$dtAnnotation_rows_selected
-      metaAnnotationId <- .getAnnotations()[row_count,]$META_ANNOTATION_ID
-      
-      .addValue(metaEntityActivityId, metaAnnotationId)
-    }
-    .clearTextInputs(valueTextInputs("Ann"), "btnSubmitValueAnn")
-  }, priority = 1)
-  
-  observeEvent(input$btnDeleteValueAnn, handlerExpr = {
-    row_count <- input$dtValueAnnotation_rows_selected
-    metaValueId <- .getValues()[row_count,]$META_VALUE_ID
-    
-    .deleteValue(metaValueId)
-    .clearTextInputs(agentTextInputs, "btnSubmitValueAnn")
-  }, priority = 1)
-  
-  
-  observeEvent(eventExpr = input$dtValueAnnotation_rows_selected, handlerExpr = {
-    updateActionButton(session = session, inputId = "btnSubmitValueAnn", label = "Update Selected")
-    row_count <- input$dtValueAnnotation_rows_selected
-    
-    for (t in valueTextInputs("Ann")) {
-      t <- gsub(pattern = "Ann", replacement = "", x = t)
-      updateTextInput(session = session,
-                      inputId = t,
-                      value = .getValues()[row_count,][toupper(SqlRender::camelCaseToSnakeCase(t))][[1]])
-    }
-  })
-  
-  observe({
-    if (input$cdmSource != "All Sources") {
-      df <- .getAgents()  
-      humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
-      algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
-      
-      choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
-                                                                                 humans$AGENT_FIRST_NAME, sep = ", ")),
-                      `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
-      updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
-    }
-  })
-  
-  # Heel Events ------------------------------------------------------------
-  
-  observeEvent(eventExpr = input$dtHeelResults_rows_selected, handlerExpr = {
-    row_count <- input$dtHeelResults_rows_selected
-    annotationAsString <- .getHeelResults()[row_count,]$ANNOTATION_AS_STRING
-    
-    valueAsString <- .getHeelResults()[row_count,]$VALUE_AS_STRING
-    if (!is.na(annotationAsString)) {
-      updateSelectInput(session = session, inputId = "heelStatus", selected = annotationAsString)
-    }
-    if (!is.na(valueAsString)) {
-      updateTextInput(session = session, inputId = "heelAnnotation", value = valueAsString)
-    }
-  })
-  
-  observeEvent(eventExpr = input$btnDeleteHeel, handlerExpr = {
-    .deleteHeelAnnotation()
-    updateTextInput(session = session, inputId = "heelAnnotation", value = "")
-    updateSelectInput(session = session, inputId = "heelStatus", selected = "")
-  }, priority = 1)
-  
-  observeEvent(eventExpr = input$btnSubmitHeel, handlerExpr = {
-    if (input$heelStatus == "Needs Review" | input$heelAnnotation == "") {
-      showNotification(ui = "Please change Heel Status and add Annotation", type = "error")
-    } else {
-      row_count <- input$dtHeelResults_rows_selected
-      newAnnotation <- .getHeelResults()[row_count,]$ANNOTATION_AS_STRING == "Needs Review"
-      
-      if (!newAnnotation) {
-        .updateHeelAnnotation()
-      } else {
-        .addHeelAnnotation()
-      }
-      updateTextInput(session = session, inputId = "heelAnnotation", value = "")
-      updateSelectInput(session = session, inputId = "heelStatus", selected = "")
-    }
-  }, priority = 1)
-  
 })
 
-
-# .getSourceName <- function(connectionDetails,
-#                            cdmDatabaseSchema) {
-#   sql <- SqlRender::renderSql(sql = "select cdm_source_name from @cdmDatabaseSchema.cdm_source",
-#                               cdmDatabaseSchema = cdmDatabaseSchema)$sql
-#   sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
-#   connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
-#   sourceName <- tryCatch({
-#     s <- DatabaseConnector::querySql(connection = connection, sql = sql)
-#     s[1,]
-#   }, error = function (e) {
-#     ""
-#   }, finally = {
-#     DatabaseConnector::disconnect(connection = connection)
-#     rm(connection)
-#   })
-#   sourceName
-# }
