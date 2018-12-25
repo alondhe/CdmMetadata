@@ -7,6 +7,88 @@ library(shinyjs)
 
 shinyServer(function(input, output, session) {
   
+  .getConnectionDetails <- function(cdmSource) {
+    if (is.null(cdmSource$user)) {
+      connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
+                                                                      server = cdmSource$server,
+                                                                      port = cdmSource$port,
+                                                                      extraSettings = cdmSource$extraSettings)
+    } else {
+      connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
+                                                                      server = cdmSource$server,
+                                                                      port = cdmSource$port,
+                                                                      user = cdmSource$user,
+                                                                      password = cdmSource$password,
+                                                                      extraSettings = cdmSource$extraSettings)
+    }
+    connectionDetails  
+  }
+  
+  .getObservationPeriodDates <- function(connectionDetails,
+                                         resultsDatabaseSchema) {
+    
+    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "source/getObservationPeriods.sql", 
+                                             packageName = "CdmMetadata", 
+                                             dbms = connectionDetails$dbms,
+                                             resultsDatabaseSchema = resultsDatabaseSchema)
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    DatabaseConnector::querySql(connection = connection, sql = sql)
+  }
+  
+  .getSourceDescription <- function(connectionDetails,
+                                    resultsDatabaseSchema) {
+    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "source/getDescription.sql", 
+                                             packageName = "CdmMetadata", 
+                                             dbms = connectionDetails$dbms,
+                                             resultsDatabaseSchema = resultsDatabaseSchema)
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    DatabaseConnector::querySql(connection = connection, sql = sql)
+  }
+  
+  .getSourcePopulation <- function(connectionDetails,
+                                   resultsDatabaseSchema) {
+    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "source/getPopulation.sql", 
+                                             packageName = "CdmMetadata", 
+                                             dbms = connectionDetails$dbms,
+                                             resultsDatabaseSchema = resultsDatabaseSchema)
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    DatabaseConnector::querySql(connection = connection, sql = sql)
+  }
+  
+  .createSourceOverview <- function(cdmSource, parentDiv, width = 12) {
+    connectionDetails <- .getConnectionDetails(cdmSource)
+    
+    df <- .getObservationPeriodDates(connectionDetails,
+                                     cdmSource$resultsDatabaseSchema)
+    
+    df$DATE <- as.Date(paste0(df$STRATUM_1, '01'), format='%Y%m%d') 
+    
+    plot <- plot_ly(df, x = ~DATE, y = ~COUNT_VALUE, type = "scatter", mode = "lines+markers", 
+                    source = "C") %>%
+      layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Persons"))
+    
+    removeUI(selector = sprintf("#%s div:has(> .box)", parentDiv), session = session)
+    
+    insertUI(selector = sprintf("#%s", parentDiv), 
+             ui = {
+               shinydashboard::box(title = cdmSource$name, collapsible = TRUE, width = width,
+                                   div(.getSourceDescription(connectionDetails,
+                                                             cdmSource$resultsDatabaseSchema)),
+                                   div(h4("Start Date"), min(df$DATE)),
+                                   div(h4("End Date"), max(df$DATE)),
+                                   div(h4("Population Count", .getSourcePopulation(connectionDetails,
+                                                                                   cdmSource$resultsDatabaseSchema))),
+                                   plot
+               )
+             }, session = session)
+  }
+  
   observe({
     if (input$cdmSource == "All Sources") {
       hide(selector = "#sidebarCollapsed li a[data-value=provenance]")
@@ -16,6 +98,7 @@ shinyServer(function(input, output, session) {
       hide(selector = "#sidebarCollapsed li a[data-value=cohortDefKb]")  
       
       updateTabItems(session = session, inputId = "tabs", selected = "overview")
+      
     } else {
       show(selector = "#sidebarCollapsed li a[data-value=provenance]")
       show(selector = "#sidebarCollapsed li a[data-value=heelResults]")  
@@ -34,15 +117,17 @@ shinyServer(function(input, output, session) {
       hide(selector = "#sidebarCollapsed li a[data-value=conceptSetKb]")  
       hide(selector = "#sidebarCollapsed li a[data-value=cohortDefKb]")  
       updateSelectInput(session = session, inputId = "cdmSource", selected = "All Sources")
+      
+      for (cdmSource in cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")]) {
+        .createSourceOverview(cdmSource, "overviewBoxes", 6)
+      }
+    } else if (input$tabs == "provenance") {
+      index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
+      cdmSource <- cdmSources[[index]]
+      .createSourceOverview(cdmSource = cdmSource, parentDiv = "overviewBox", width = 12)
     }
   })
-  
-  # output$clip <- renderUI({
-  #   rclipButton("clipbtn", "Copy", input$sourceDescription, icon("clipboard"))
-  # })
-  
-  #observeEvent(input$clipbtn, clipr::write_clip(input$sourceDescription))
-  
+
   output$sourceName <- renderText({
     input$cdmSource
   })
@@ -418,20 +503,8 @@ shinyServer(function(input, output, session) {
       index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
       cdmSource <- cdmSources[[index]]
       
-      if (is.null(cdmSource$user)) {
-        connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
-                                                                        server = cdmSource$server,
-                                                                        port = cdmSource$port,
-                                                                        extraSettings = cdmSource$extraSettings)
-      } else {
-        connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
-                                                                        server = cdmSource$server,
-                                                                        port = cdmSource$port,
-                                                                        user = cdmSource$user,
-                                                                        password = cdmSource$password,
-                                                                        extraSettings = cdmSource$extraSettings)
-      }
-      connectionDetails  
+      .getConnectionDetails(cdmSource)
+     
     } else {
       NULL
     }
@@ -469,16 +542,31 @@ shinyServer(function(input, output, session) {
   
   achillesConcepts <- reactive({
     if (input$cdmSource != "All Sources") {
-      sql <- SqlRender::renderSql("select distinct A.analysis_id, A.stratum_1, B.concept_name, B.concept_id from @resultsDatabaseSchema.achilles_results A
-                                  join @vocabDatabaseSchema.concept B on cast(stratum_1 as integer) = B.concept_id
+      # index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
+      # cdmSource <- cdmSources[[index]]
+      
+      # rdsFile <- file.path("data", sprintf("%s.rds", cdmSource$name))
+      # if (file.exists(rdsFile)) {
+      #   df <- readRDS(rdsFile)
+      # } else {
+        sql <- SqlRender::renderSql("select distinct A.analysis_id, A.stratum_1, B.concept_name, B.concept_id from @resultsDatabaseSchema.achilles_results A
+                                    join @vocabDatabaseSchema.concept B on cast(stratum_1 as integer) = B.concept_id
                                     and B.concept_id <> 0
-                                  where A.analysis_id in (402,602,2101,702,1801,802);",
-                                  resultsDatabaseSchema = resultsDatabaseSchema(),
-                                  vocabDatabaseSchema = vocabDatabaseSchema())$sql
-      sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
-      connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
-      on.exit(DatabaseConnector::disconnect(connection = connection))
-      DatabaseConnector::querySql(connection = connection, sql = sql)
+                                    where A.analysis_id in (402,602,2101,702,1801,802);",
+                                    resultsDatabaseSchema = resultsDatabaseSchema(),
+                                    vocabDatabaseSchema = vocabDatabaseSchema())$sql
+        sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
+        connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+        on.exit(DatabaseConnector::disconnect(connection = connection))
+        df <- DatabaseConnector::querySql(connection = connection, sql = sql) 
+      #   if (!dir.exists(dirname(rdsFile))) {
+      #     dir.create(path = dirname(rdsFile), recursive = TRUE)
+      #   }
+      #   
+      #   saveRDS(object = df, file = rdsFile)
+      # }
+      
+      df
     } else {
       NULL
     }

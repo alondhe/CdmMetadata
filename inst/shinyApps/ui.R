@@ -37,7 +37,7 @@ ui <- dashboardPage(
       menuItem("Cohort Knowledge Base", tabName = "cohortDefKb", icon = icon("globe"))
     ),
     conditionalPanel(condition = "input.tabs == 'provenance'",
-                     textAreaInput(inputId = "sourceDescription", label = "Source Description"),
+                     textAreaInput(inputId = "sourceDescription", label = "Source Description", height = "300px"),
                      actionButton(inputId = "btnSubmitDescription", label = "Submit", icon = icon("check"))
                      ),
     conditionalPanel(condition = "input.tabs == 'heelResults'", 
@@ -70,20 +70,12 @@ ui <- dashboardPage(
       tabItem("overview",
               h3("Sources Overview"),
               helpText("View metadata about all sources from your site"),
-              
+              div(id = "overviewBoxes")
               ),
       tabItem("provenance",
               h3("Source Provenance: ", textOutput(outputId = "sourceName")),
               helpText("Create and view metadata about the source's provenance"),
-              div(
-                h4("Source Description"),
-                uiOutput("clip"),
-                textOutput(outputId = "sourceDescriptionOutput")  
-              ),
-              div(
-                h4("CDM Version"),
-                textOutput(outputId = "cdmVersion")
-              )
+              div(id = "overviewBox")
               ),
       tabItem("conceptKb", 
               h3("Concept"),
