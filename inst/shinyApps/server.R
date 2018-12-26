@@ -22,7 +22,7 @@ shinyServer(function(input, output, session) {
         iconName <- "minus"
       }
       div(style = "display:inline-block;text-align: left;padding-bottom: 20px",
-          actionButton(inputId = sprintf("btn%1s%2s", crudType, suffix),
+          actionButton(inputId = sprintf("btnModal%1s%2s", crudType, suffix),
                        label = crudType, icon = icon(iconName)))
     })
     
@@ -173,6 +173,82 @@ shinyServer(function(input, output, session) {
     DatabaseConnector::querySql(connection = connection, sql = sql)
   }
   
+  .submitSourceDescription <- function() {
+    
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    sql <- SqlRender::renderSql("select A.meta_entity_activity_id, B.meta_value_id
+                                  from @resultsDatabaseSchema.meta_entity_activity A
+                                  join @resultsDatabaseSchema.meta_value B on A.meta_entity_activity_id = B.meta_entity_activity_id
+                                  where A.entity_as_string = 'Source' and A.activity_as_string = 'Source Provenance';",
+                                resultsDatabaseSchema = resultsDatabaseSchema())$sql
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
+    df <- DatabaseConnector::querySql(connection = connection, sql = sql)
+    
+    if (nrow(df) == 0) {
+      metaEntityActivityId <- .getMaxId(tableName = "meta_entity_activity",
+                                        fieldName = "meta_entity_activity_id") + 1
+      
+      entityActivity <- data.frame(
+        meta_entity_activity_id = metaEntityActivityId,
+        meta_agent_id = as.integer(input$selectAgent),
+        entity_concept_id = 0,
+        entity_as_string = "Source",
+        entity_identifier = NA,
+        activity_concept_id = 0,
+        activity_type_concept_id = 0,
+        activity_as_string = "Source Provenance",
+        activity_start_date = NA,
+        activity_end_date = NA,
+        security_concept_id = 0
+      )
+      
+      DatabaseConnector::insertTable(connection = connection, 
+                                     tableName = sprintf("%s.meta_entity_activity", 
+                                                         resultsDatabaseSchema()), 
+                                     data = entityActivity, 
+                                     dropTableIfExists = F, createTable = F)
+      
+      metaValueId <- .getMaxId(tableName = "meta_value",
+                               fieldName = "meta_value_id") + 1
+      
+      value <- data.frame(
+        meta_value_id = metaValueId,
+        value_ordinal = 1, 
+        meta_entity_activity_id = metaEntityActivityId,
+        meta_annotation_id = NA,
+        value_concept_id = 0,
+        value_type_concept_id = 0,
+        value_as_string = input$sourceDescEdit,
+        value_as_number = NA,
+        operator_concept_id = 0
+      )
+      
+      DatabaseConnector::insertTable(connection = connection, 
+                                     tableName = sprintf("%s.meta_value", resultsDatabaseSchema()), 
+                                     data = value, 
+                                     dropTableIfExists = F, createTable = F)
+      
+    } else {
+      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "source/updateDescription.sql",
+                                               packageName = "CdmMetadata", 
+                                               dbms = connectionDetails()$dbms,
+                                               resultsDatabaseSchema = resultsDatabaseSchema(),
+                                               metaValueId = df$META_VALUE_ID,
+                                               metaEntityActivityId = df$META_ENTITY_ACTIVITY_ID,
+                                               metaAgentId = input$selectAgent,
+                                               valueAsString = input$sourceDescEdit)  
+      
+      DatabaseConnector::executeSql(connection = connection, sql = sql)
+    }
+    
+    .createSourceOverview(cdmSource = currentSource(), parentDiv = "overviewBox", width = 12)
+    showNotification("Source Description Submitted")
+    
+    removeModal(session = session)
+  }
+  
   .getSourcePopulation <- function() {
     df <- readRDS("data/totalPop.rds")
     prettyNum(df$COUNT_VALUE[df$CDM_SOURCE == currentSource()$name], big.mark = ",")
@@ -222,23 +298,32 @@ shinyServer(function(input, output, session) {
     input$btnDeleteHeel
     if (currentSource()$name != "All Sources") {
       show(id = "tasksDropdown")
+      
+      sourceDesc <- .getSourceDescription(connectionDetails = connectionDetails(), 
+                                          resultsDatabaseSchema = resultsDatabaseSchema())
+      
+      sourceDescItem <- taskItem(text = "Source Description Available", 
+                                         value = 100 * as.integer(sourceDesc$VALUE_AS_STRING != ""), 
+                                 color = "orange")  
       df <- .getHeelResults()
-      
       ratio <- nrow(df[!is.na(df$VALUE_AS_STRING),])/nrow(df)
+        
+      heelItem <- taskItem(value = round(ratio * 100.00, digits = 2), color = "blue", 
+                           text = "Heel Results Reviewed")
       
-      if (ratio < 1) {
-        output$tasksDropdown <- renderMenu({
-          items <- list(
-            taskItem(value = round(ratio * 100.00, digits = 2), color = "blue", text = "Heel Results Reviewed")
-          )
-          dropdownMenu(
-            type = "tasks", badgeStatus = "danger",
-            .list = items
-          )
-        })  
-      } else {
-        hide(id = "tasksDropdown")
-      }
+      # items <- c()
+      # if (sourceDesc$VALUE_AS_STRING == "") {
+      #   items <- list(items, sourceDesc)
+      # }
+      # if (ratio < 1) {
+      #   items <- list(items, heelItem)
+      # }
+      output$tasksDropdown <- renderMenu({
+        dropdownMenu(
+          type = "tasks", badgeStatus = "danger",
+          .list = list(sourceDescItem, heelItem)
+        )
+      }) 
     } else {
       hide(id = "tasksDropdown")
     }
@@ -717,11 +802,20 @@ shinyServer(function(input, output, session) {
   
   # Observe Events ------------------------------------------------------
   
-  observeEvent(eventExpr = input$btnEditSourceDesc, handlerExpr = {
+  observeEvent(eventExpr = input$btnModalEditSourceDesc, handlerExpr = {
     showModal(modalDialog(
-      title = "Edit Source Description"
+      title = "Edit Source Description",
+      textAreaInput(inputId = "sourceDescEdit", label = "Source Description", 
+                    placeholder = "Needs a source description", width = "500px", height = "300px",
+                    value = .getSourceDescription(connectionDetails = connectionDetails(),
+                                                  resultsDatabaseSchema = resultsDatabaseSchema())),
+      actionButton(inputId = "btnEditSourceDesc", label = "Submit Changes")
     )
     )
+  })
+  
+  observeEvent(eventExpr = input$btnEditSourceDesc, handlerExpr = {
+    .submitSourceDescription()
   })
   
   observeEvent(eventExpr = input$btnEditHeelResults, handlerExpr = {
