@@ -16,6 +16,10 @@
 }
 
 baseUrl <- jsonlite::read_json(path = Sys.getenv("jsonPath"))$baseUrl
+atlasUrl <- jsonlite::read_json(path = Sys.getenv("jsonPath"))$atlasUrl
+if (atlasUrl == "") {
+  atlasUrl <- "http://www.ohdsi.org/web/atlas"
+}
 
 cdmSources <- jsonlite::read_json(path = Sys.getenv("jsonPath"))$sources
 

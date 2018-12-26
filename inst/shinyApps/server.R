@@ -332,8 +332,10 @@ shinyServer(function(input, output, session) {
   observe({
     clicked <- event_data(event = "plotly_click", source = "C", session = session)
     if (!is.null(clicked)) {
-      updateDateInput(session = session, inputId = "conceptStartDate", value = clicked$x)  
+    #  updateDateInput(session = session, inputId = "conceptStartDate", value = clicked$x)  
+      updateTextInput(session = session, inputId = "conceptStartDate", value = clicked$x)
     }
+    
   })
   
   observe({
@@ -421,7 +423,7 @@ shinyServer(function(input, output, session) {
       formatStyle("Heel Status", #"Warning Type",
                   target = "row",
                   backgroundColor = styleEqual(c("Non-issue", "Needs Review", "Issue"),
-                                               c("#e8f0ff", "#fffedb", "#ffdbdb")))
+                                               c("#deffc9", "#fffedb", "#ffdbdb")))
     
     table
   })
@@ -577,19 +579,45 @@ shinyServer(function(input, output, session) {
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
     df <- DatabaseConnector::querySql(connection = connection, sql = sql)
-    
+
     if (nrow(df) > 0) {
       df$DATE <- as.Date(paste0(df$STRATUM_2, "01"), format = "%Y%m%d") 
       meta <- df[!is.na(df$VALUE_AS_STRING),]
       
       if (nrow(meta) > 0) {
+        
+        output$dtConceptPrevMeta <- renderDataTable(expr = {
+          
+          metaDataTable <- dplyr::select(meta, 
+                                         `Date` = DATE,
+                                         `Temporal Event` = VALUE_AS_STRING)
+          
+          options <- list(pageLength = 10,
+                          searching = TRUE,
+                          lengthChange = FALSE,
+                          ordering = TRUE,
+                          paging = TRUE,
+                          scrollY = '15vh')
+          selection <- list(mode = "single", target = "row")
+          
+          table <- datatable(metaDataTable,
+                             options = options,
+                             selection = "single",
+                             rownames = FALSE, 
+                             class = "stripe nowrap compact", extensions = c("Responsive"))
+          
+          table
+        })
+        
         plot_ly(data = df, x = ~DATE, y = ~COUNT_VALUE, name = "Concept Prevalance",
                 type = "scatter", mode = "lines", source = "C") %>%
-          add_trace(data = meta, x = ~DATE, y = ~COUNT_VALUE, text = ~VALUE_AS_STRING,
-                    size = 120,
+          add_trace(data = meta, x = ~DATE, y = ~COUNT_VALUE, text = ~VALUE_AS_STRING, 
                     name = "Temporal Event", mode = "markers") %>%
           layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events"))
       } else {
+        output$dtConceptPrevMeta <- renderDataTable(expr = {
+          data.frame()
+        })
         plot_ly(data = df, x = ~DATE, y = ~COUNT_VALUE, name = "Concept Prevalance",
                 type = "scatter", mode = "lines", source = "C") %>%
           layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events"))
@@ -1018,8 +1046,8 @@ shinyServer(function(input, output, session) {
       activity_concept_id = 0,
       activity_type_concept_id = 0,
       activity_as_string = "Temporal Event",
-      activity_start_date = input$conceptStartDate,
-      activity_end_date = input$conceptStartDate,
+      activity_start_date = as.Date(input$conceptStartDate),
+      activity_end_date = as.Date(input$conceptStartDate),
       security_concept_id = 0
     )
     
@@ -1098,7 +1126,7 @@ shinyServer(function(input, output, session) {
       activity_concept_id = 0,
       activity_type_concept_id = 0,
       activity_as_string = "Temporal Event",
-      activity_start_date = input$conceptStartDate,
+      activity_start_date = as.Date(input$conceptStartDate),
       activity_end_date = NA,
       security_concept_id = 0
     )
