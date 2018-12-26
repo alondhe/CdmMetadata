@@ -7,6 +7,34 @@ library(shinyjs)
 
 shinyServer(function(input, output, session) {
   
+  # CRUD buttons -----------------------------------
+  
+  .createCrudButtons <- function(parentDiv, crudTypes = c("Submit", "Edit", "Delete")) {
+    
+    suffix <- gsub(pattern = "Crud", replacement = "", x = parentDiv)
+    
+    divs <- lapply(crudTypes, function(crudType) {
+      if (crudType == "Submit") {
+        iconName <- "plus"
+      } else if (crudType == "Edit") {
+        iconName <- "edit"
+      } else {
+        iconName <- "minus"
+      }
+      div(style = "display:inline-block;text-align: left;padding-bottom: 20px",
+          actionButton(inputId = sprintf("btn%1s%2s", crudType, suffix),
+                       label = crudType, icon = icon(iconName)))
+    })
+    
+    insertUI(selector = sprintf("#%s", parentDiv), session = session,
+             ui = {
+               divs
+             })
+  }
+  
+  .createCrudButtons(parentDiv = "SourceDescCrud", crudTypes = c("Edit"))
+  .createCrudButtons(parentDiv = "HeelResultsCrud", crudTypes = c("Edit", "Delete"))
+  
   # Reactives ---------------------------------------------------------------------
   
   currentSource <- reactive({
@@ -56,22 +84,33 @@ shinyServer(function(input, output, session) {
   })
   
   cohortDefinitions <- reactive({
-    url <- sprintf("%1s/cohortdefinition", baseUrl)
-    cohorts <- httr::content(httr::GET(url))
-    cohorts <- lapply(cohorts, function(c) {
-      data.frame(ID = c$id, Name = c$name)
-    })
-    do.call("rbind", cohorts)
+    if (input$cdmSource != "All Sources") {
+      url <- sprintf("%1s/cohortdefinition", baseUrl)
+      cohorts <- httr::content(httr::GET(url))
+      cohorts <- lapply(cohorts, function(c) {
+        data.frame(ID = c$id, Name = c$name)
+      })
+      do.call("rbind", cohorts)  
+    } else {
+      NULL
+    }
   })
   
   conceptSets <- reactive({
-    url <- sprintf("%1s/conceptset", baseUrl)
-    sets <- httr::content(httr::GET(url))
-    sets <- lapply(sets, function(c) {
-      data.frame(ID = c$id, Name = c$name)
-    })
-    do.call("rbind", sets)
+    if (input$cdmSource != "All Sources") {
+      url <- sprintf("%1s/conceptset", baseUrl)
+      sets <- httr::content(httr::GET(url))
+      sets <- lapply(sets, function(c) {
+        data.frame(ID = c$id, Name = c$name)
+      })
+      do.call("rbind", sets)  
+    } else {
+      NULL
+    }
   })
+  
+  
+  # Source Queries ------------------------------------------------------
   
   .getConceptPrevalence <- function() {
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
@@ -108,9 +147,6 @@ shinyServer(function(input, output, session) {
       data.frame()
     }
   }
-  
-  # Source Queries ------------------------------------------------------
-  
   
   .getObservationPeriodDates <- function(connectionDetails,
                                          resultsDatabaseSchema) {
@@ -192,7 +228,9 @@ shinyServer(function(input, output, session) {
   
   observe({
     clicked <- event_data(event = "plotly_click", source = "C", session = session)
-    updateDateInput(session = session, inputId = "conceptStartDate", value = clicked$x)
+    if (!is.null(clicked)) {
+      updateDateInput(session = session, inputId = "conceptStartDate", value = clicked$x)  
+    }
   })
   
   observe({
@@ -238,15 +276,12 @@ shinyServer(function(input, output, session) {
       hide(selector = "#sidebarCollapsed li a[data-value=cohortDefKb]")  
       updateSelectInput(session = session, inputId = "cdmSource", selected = "All Sources")
       
-      for (cdmSource in cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")]) {
-        .createSourceOverview(cdmSource, "overviewBoxes", 6)
-      }
-    } else if (input$tabs == "provenance") {
+    } else if (input$tabs == "provenance" & input$cdmSource != "All Sources") {
       index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
       cdmSource <- cdmSources[[index]]
       .createSourceOverview(cdmSource = cdmSource, parentDiv = "overviewBox", width = 12)
     }
-  })
+  }) 
 
   
   # Output DataTable renders ------------------------------------------
@@ -347,9 +382,14 @@ shinyServer(function(input, output, session) {
     output$includedConcepts <- renderText({ paste(concepts, collapse = ",") })
   })
   
-
-
-
+  # Helpers ---------------------------------------------------
+  
+  agentTextInputs <- c("agentFirstName",
+                       "agentLastName",
+                       "agentSuffix",
+                       "agentAlgorithm",
+                       "agentDescription")
+  
   .clearTextInputs <- function(textInputNames, submitButtonId) {
     for (t in textInputNames) {
       updateTextInput(session, t, value = "")
@@ -358,8 +398,6 @@ shinyServer(function(input, output, session) {
       updateActionButton(session = session, inputId = submitButtonId, label = "Add New")
     }
   }
-  
-  # Helpers ---------------------------------------------------
   
   .getMaxId <- function(tableName, fieldName) {
     
@@ -586,7 +624,100 @@ shinyServer(function(input, output, session) {
     .refreshConceptPlot()
   })
   
+  # InfoBox Renders -----------------------------------------------------
+  
+ 
+  output$numPersons <- renderInfoBox({
+    totalPop <- readRDS("data/totalPop.rds")
+    infoBox(
+      "Total Persons", prettyNum(totalPop, big.mark = ","), icon = icon("users"),
+      color = "purple", fill = TRUE
+    )
+  })
+  
+  output$numHumanAgents <- renderInfoBox({
+    agents <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")], function(cdmSource) {
+      connectionDetails <- .getConnectionDetails(cdmSource)
+      connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+      sql <- SqlRender::renderSql(sql = "select agent_first_name, agent_last_name 
+                                  from @resultsDatabaseSchema.meta_agent where meta_agent_concept_id = 1000;",
+                                  resultsDatabaseSchema = cdmSource$resultsDatabaseSchema)$sql
+      sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
+      agents <- DatabaseConnector::querySql(connection = connection, sql = sql)
+      DatabaseConnector::disconnect(connection = connection)
+      agents
+    })
+    
+    uniques <- dplyr::distinct(do.call("rbind", agents))
+    
+    infoBox(
+      "Total Distinct Human Agents", nrow(uniques), icon = icon("user-tag"),
+      color = "red", fill = TRUE
+    )
+  })
+  
+  output$numAlgorithmAgents <- renderInfoBox({
+    agents <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")], function(cdmSource) {
+      connectionDetails <- .getConnectionDetails(cdmSource)
+      connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+      sql <- SqlRender::renderSql(sql = "select agent_algorithm 
+                                  from @resultsDatabaseSchema.meta_agent where meta_agent_concept_id = 2000;",
+                                  resultsDatabaseSchema = cdmSource$resultsDatabaseSchema)$sql
+      sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
+      agents <- DatabaseConnector::querySql(connection = connection, sql = sql)
+      DatabaseConnector::disconnect(connection = connection)
+      agents
+    })
+    
+    uniques <- dplyr::distinct(do.call("rbind", agents))
+    infoBox(
+      "Total Distinct Algorithm Agents", nrow(uniques), icon = icon("code"),
+      color = "yellow", fill = TRUE
+    )
+  })
+  
+  output$propTagged <- renderInfoBox({
+    counts <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")], function(cdmSource) {
+      connectionDetails <- .getConnectionDetails(cdmSource)
+      connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+      sql <- SqlRender::renderSql(sql = "select count(*) from @resultsDatabaseSchema.meta_entity_activity;",
+                                  resultsDatabaseSchema = cdmSource$resultsDatabaseSchema)$sql
+      sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
+      count <- DatabaseConnector::querySql(connection = connection, sql = sql)
+      DatabaseConnector::disconnect(connection = connection)
+      as.integer(count > 0)
+    })
+    
+    prop <- sum(unlist(counts)) / length(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")])
+    
+    infoBox(
+      "Proportion of Sources with Metadata", prop * 100.00, icon = icon("percent"),
+      color = "green", fill = TRUE
+    )
+  })
+  
   # Observe Events ------------------------------------------------------
+  
+  observeEvent(eventExpr = input$btnEditSourceDesc, handlerExpr = {
+    showModal(modalDialog(
+      title = "Edit Source Description"
+    )
+    )
+  })
+  
+  observeEvent(eventExpr = input$btnEditHeelResults, handlerExpr = {
+    showModal(modalDialog(
+      title = "Edit Heel Result Annotation"
+    )
+    )
+  })
+  
+  observeEvent(eventExpr = input$btnDeleteHeelResults, handlerExpr = {
+    showModal(modalDialog(
+      title = "Delete Heel Result Annotation"
+    )
+    )
+  })
   
   observeEvent(eventExpr = input$dtHeelResults_rows_selected, handlerExpr = {
     row_count <- input$dtHeelResults_rows_selected
@@ -1281,6 +1412,7 @@ shinyServer(function(input, output, session) {
     
     showNotification(sprintf("Value record deleted"))
   }
+  
 
 })
 

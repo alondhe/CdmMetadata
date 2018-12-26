@@ -8,6 +8,20 @@ library(shinycssloaders)
 
 ui <- dashboardPage(
   dashboardHeader(title = "CDM Metadata", titleWidth = "300px",
+                  dropdownMenu(type = "tasks", badgeStatus = "success",
+                               taskItem(value = 90, color = "green",
+                                        "Documentation"
+                               ),
+                               taskItem(value = 17, color = "aqua",
+                                        "Project X"
+                               ),
+                               taskItem(value = 75, color = "yellow",
+                                        "Server deployment"
+                               ),
+                               taskItem(value = 80, color = "red",
+                                        "Overall project"
+                               )
+                  ),
                   tags$li(a(href = 'http://www.ohdsi.org',
                             img(src = 'ohdsi_logo_mini.png',
                                 title = "OHDSI", height = "30px"),
@@ -34,32 +48,32 @@ ui <- dashboardPage(
       menuItem("Concept Knowledge Base", tabName = "conceptKb", icon = icon("line-chart")),
       menuItem("Concept Set Knowledge Base", tabName = "conceptSetKb", icon = icon("list")),
       menuItem("Cohort Knowledge Base", tabName = "cohortDefKb", icon = icon("globe"))
-    ),
-    conditionalPanel(condition = "input.tabs == 'provenance'",
-                     textAreaInput(inputId = "sourceDescription", label = "Source Description", height = "300px"),
-                     actionButton(inputId = "btnSubmitDescription", label = "Submit", icon = icon("check"))
-                     ),
-    conditionalPanel(condition = "input.tabs == 'heelResults'", 
-      selectInput(inputId = "heelStatus", label = "Heel Status", choices = c("", 
-                                                                             "Needs Review", #= 900000519, 
-                                                                             "Non-issue", # = 900000518, 
-                                                                             "Issue"), # = 900000517), 
-                                                                             width = "250px"),
-      textAreaInput(inputId = "heelAnnotation", label = "Heel Annotation",
-                    rows = 4, resize = "none", width = "250px"),
-      div(style = "display:inline-block;text-align: left;",
-          actionButton(inputId = "btnSubmitHeel", label = "Submit", icon = icon("check"))),
-      div(style = "display:inline-block;text-align: left;",
-          actionButton(inputId = "btnDeleteHeel", label = "Remove", icon = icon("minus")))
-    ),
-    conditionalPanel(condition = "input.tabs == 'conceptKb'",
-                     #checkboxInput(inputId = "toggleConcepts", label = "See only concepts with metadata", value = FALSE),
-                     selectInput(inputId = "domainId", label = "Domain", selectize = TRUE,
-                                 choices = domainConceptIds), 
-                     
-                     selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px", selectize = TRUE,
-                                 choices = c())
-                     )
+    )
+    # conditionalPanel(condition = "input.tabs == 'provenance'",
+    #                  textAreaInput(inputId = "sourceDescription", label = "Source Description", height = "300px"),
+    #                  actionButton(inputId = "btnSubmitDescription", label = "Submit", icon = icon("check"))
+    #                  ),
+    # conditionalPanel(condition = "input.tabs == 'heelResults'", 
+    #   selectInput(inputId = "heelStatus", label = "Heel Status", choices = c("", 
+    #                                                                          "Needs Review", #= 900000519, 
+    #                                                                          "Non-issue", # = 900000518, 
+    #                                                                          "Issue"), # = 900000517), 
+    #                                                                          width = "250px"),
+    #   textAreaInput(inputId = "heelAnnotation", label = "Heel Annotation",
+    #                 rows = 4, resize = "none", width = "250px"),
+    #   div(style = "display:inline-block;text-align: left;",
+    #       actionButton(inputId = "btnSubmitHeel", label = "Submit", icon = icon("check"))),
+    #   div(style = "display:inline-block;text-align: left;",
+    #       actionButton(inputId = "btnDeleteHeel", label = "Remove", icon = icon("minus")))
+    # ),
+    # conditionalPanel(condition = "input.tabs == 'conceptKb'",
+    #                  #checkboxInput(inputId = "toggleConcepts", label = "See only concepts with metadata", value = FALSE),
+    #                  selectInput(inputId = "domainId", label = "Domain", selectize = TRUE,
+    #                              choices = domainConceptIds), 
+    #                  
+    #                  selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px", selectize = TRUE,
+    #                              choices = c())
+    #                  )
   ),
   dashboardBody(
     tags$head(
@@ -67,17 +81,30 @@ ui <- dashboardPage(
     tabItems(
       tabItem("overview",
               h3("Sources Overview"),
-              helpText("View metadata about all sources from your site"),
-              div(id = "overviewBoxes")
+              helpText("Overview metadata about all sources from your site"),
+              #div(id = "overviewBoxes"),
+              fluidRow(
+                infoBox("CDM Sources", length(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")]), 
+                        icon = icon("sitemap"), fill = TRUE),
+                infoBoxOutput(outputId = "numPersons"),
+                infoBoxOutput(outputId = "numHumanAgents"),
+                infoBoxOutput(outputId = "numAlgorithmAgents"),
+                infoBoxOutput(outputId = "propTagged")
+              )
               ),
       tabItem("provenance",
               h3("Source Provenance"),
               helpText("Create and view metadata about the source's provenance"),
+              div(id = "SourceDescCrud"),
               div(id = "overviewBox")
               ),
       tabItem("conceptKb", 
               h3("Concept"),
               helpText("Create and view metadata about a concept"),
+              selectInput(inputId = "domainId", label = "Domain", selectize = TRUE,
+                          choices = domainConceptIds),
+              selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px", selectize = TRUE,
+                          choices = c()),
               plotlyOutput(outputId = "conceptKbPlot") %>% withSpinner(color = spinnerColor),
               verbatimTextOutput(outputId = "conceptName", placeholder = TRUE),
               dateInput(inputId = "conceptStartDate", label = "Temporal Event Start Date", value = "1900-01-01"),
@@ -87,6 +114,7 @@ ui <- dashboardPage(
       tabItem("heelResults",
               h3("Achilles Heel Results"),
               helpText("Annotate and view Data Quality results from Achilles Heel"),
+              div(id = "HeelResultsCrud"),
               DT::dataTableOutput(outputId = "dtHeelResults") %>% withSpinner(color = spinnerColor)
               ),
       tabItem("conceptSetKb",

@@ -42,6 +42,25 @@ for (cdmSource in cdmSources) {
   }
 }
 
+popRds <- file.path("data", "totalPop.rds")
+if (!file.exists(popRds)) {
+  sizes <- lapply(cdmSources, function(cdmSources) {
+    connectionDetails <- .getConnectionDetails(cdmSource)
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+    sql <- SqlRender::renderSql(sql = "select count_value from @resultsDatabaseSchema.achilles_results where analysis_id = 1;",
+                                resultsDatabaseSchema = cdmSource$resultsDatabaseSchema)$sql
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
+    pop <- DatabaseConnector::querySql(connection = connection, sql = sql)
+    DatabaseConnector::disconnect(connection = connection)
+    pop
+  })
+  
+  totalPop <- sum(unlist(sizes))
+  saveRDS(object = totalPop, file = popRds)
+}
+
+
+
 siteSource <- list(
   list(name = "All Sources")
 )
@@ -52,3 +71,4 @@ domainConceptIds <- c("Condition" = 402,
                       "Procedure" = 602, "Device" = 2101, "Drug" = 702, "Measurement" = 1801, "Observation" = 802)
 
 spinnerColor <- "#0dc5c1"
+
