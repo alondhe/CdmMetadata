@@ -44,10 +44,12 @@ for (cdmSource in cdmSources) {
 
 popRds <- file.path("data", "totalPop.rds")
 if (!file.exists(popRds)) {
-  sizes <- lapply(cdmSources, function(cdmSources) {
+  results <- lapply(cdmSources, function(cdmSources) {
     connectionDetails <- .getConnectionDetails(cdmSource)
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
-    sql <- SqlRender::renderSql(sql = "select count_value from @resultsDatabaseSchema.achilles_results where analysis_id = 1;",
+    sql <- SqlRender::renderSql(sql = "select '@cdmSource' as cdm_source, count_value 
+                                from @resultsDatabaseSchema.achilles_results where analysis_id = 1;",
+                                cdmSource = cdmSource$name,
                                 resultsDatabaseSchema = cdmSource$resultsDatabaseSchema)$sql
     sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
     pop <- DatabaseConnector::querySql(connection = connection, sql = sql)
@@ -55,7 +57,7 @@ if (!file.exists(popRds)) {
     pop
   })
   
-  totalPop <- sum(unlist(sizes))
+  totalPop <- do.call("rbind", results)
   saveRDS(object = totalPop, file = popRds)
 }
 

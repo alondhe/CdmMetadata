@@ -8,20 +8,7 @@ library(shinycssloaders)
 
 ui <- dashboardPage(
   dashboardHeader(title = "CDM Metadata", titleWidth = "300px",
-                  dropdownMenu(type = "tasks", badgeStatus = "success",
-                               taskItem(value = 90, color = "green",
-                                        "Documentation"
-                               ),
-                               taskItem(value = 17, color = "aqua",
-                                        "Project X"
-                               ),
-                               taskItem(value = 75, color = "yellow",
-                                        "Server deployment"
-                               ),
-                               taskItem(value = 80, color = "red",
-                                        "Overall project"
-                               )
-                  ),
+                  dropdownMenuOutput(outputId = "tasksDropdown"),
                   tags$li(a(href = 'http://www.ohdsi.org',
                             img(src = 'ohdsi_logo_mini.png',
                                 title = "OHDSI", height = "30px"),
@@ -54,17 +41,6 @@ ui <- dashboardPage(
     #                  actionButton(inputId = "btnSubmitDescription", label = "Submit", icon = icon("check"))
     #                  ),
     # conditionalPanel(condition = "input.tabs == 'heelResults'", 
-    #   selectInput(inputId = "heelStatus", label = "Heel Status", choices = c("", 
-    #                                                                          "Needs Review", #= 900000519, 
-    #                                                                          "Non-issue", # = 900000518, 
-    #                                                                          "Issue"), # = 900000517), 
-    #                                                                          width = "250px"),
-    #   textAreaInput(inputId = "heelAnnotation", label = "Heel Annotation",
-    #                 rows = 4, resize = "none", width = "250px"),
-    #   div(style = "display:inline-block;text-align: left;",
-    #       actionButton(inputId = "btnSubmitHeel", label = "Submit", icon = icon("check"))),
-    #   div(style = "display:inline-block;text-align: left;",
-    #       actionButton(inputId = "btnDeleteHeel", label = "Remove", icon = icon("minus")))
     # ),
     # conditionalPanel(condition = "input.tabs == 'conceptKb'",
     #                  #checkboxInput(inputId = "toggleConcepts", label = "See only concepts with metadata", value = FALSE),
@@ -101,21 +77,34 @@ ui <- dashboardPage(
       tabItem("conceptKb", 
               h3("Concept"),
               helpText("Create and view metadata about a concept"),
-              selectInput(inputId = "domainId", label = "Domain", selectize = TRUE,
-                          choices = domainConceptIds),
-              selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px", selectize = TRUE,
-                          choices = c()),
-              plotlyOutput(outputId = "conceptKbPlot") %>% withSpinner(color = spinnerColor),
-              verbatimTextOutput(outputId = "conceptName", placeholder = TRUE),
-              dateInput(inputId = "conceptStartDate", label = "Temporal Event Start Date", value = "1900-01-01"),
-              textAreaInput(inputId = "temporalEventValue", label = "Metadata Value", width = "800px"),
-              actionButton(inputId = "btnAddTemporalAnnotation", label = "Add Temporal Event Annotation")
+              box(width = 2, selectInput(inputId = "domainId", label = "Domain", selectize = TRUE,
+                              choices = domainConceptIds),
+                  selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px", selectize = TRUE,
+                              choices = c())),
+              box(width = 7, 
+                plotlyOutput(outputId = "conceptKbPlot") %>% withSpinner(color = spinnerColor) 
+              ),
+              box(width = 3,
+                verbatimTextOutput(outputId = "conceptName", placeholder = TRUE),
+                dateInput(inputId = "conceptStartDate", label = "Temporal Event Start Date", value = "1900-01-01"),
+                textAreaInput(inputId = "temporalEventValue", label = "Metadata Value"),
+                actionButton(inputId = "btnAddTemporalAnnotation", label = "Add Temporal Event Annotation"))
               ),
       tabItem("heelResults",
               h3("Achilles Heel Results"),
               helpText("Annotate and view Data Quality results from Achilles Heel"),
-              div(id = "HeelResultsCrud"),
-              DT::dataTableOutput(outputId = "dtHeelResults") %>% withSpinner(color = spinnerColor)
+              box(width = 9, DT::dataTableOutput(outputId = "dtHeelResults") %>% withSpinner(color = spinnerColor)),
+              box(width = 3, selectInput(inputId = "heelStatus", label = "Heel Status", choices = c("",
+                                                                                         "Needs Review", #= 900000519,
+                                                                                         "Non-issue", # = 900000518,
+                                                                                         "Issue"), # = 900000517),
+                              width = "250px"),
+                  textAreaInput(inputId = "heelAnnotation", label = "Heel Annotation",
+                                rows = 4, resize = "none", width = "250px"),
+                  div(style = "display:inline-block;text-align: left;",
+                      actionButton(inputId = "btnSubmitHeel", label = "Submit", icon = icon("check"))),
+                  div(style = "display:inline-block;text-align: left;",
+                      actionButton(inputId = "btnDeleteHeel", label = "Remove", icon = icon("minus"))))
               ),
       tabItem("conceptSetKb",
               h3("Concept Set Knowledge Base"),

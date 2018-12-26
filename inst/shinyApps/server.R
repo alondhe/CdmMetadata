@@ -33,7 +33,7 @@ shinyServer(function(input, output, session) {
   }
   
   .createCrudButtons(parentDiv = "SourceDescCrud", crudTypes = c("Edit"))
-  .createCrudButtons(parentDiv = "HeelResultsCrud", crudTypes = c("Edit", "Delete"))
+  #.createCrudButtons(parentDiv = "HeelResultsCrud", crudTypes = c("Edit", "Delete"))
   
   # Reactives ---------------------------------------------------------------------
   
@@ -173,16 +173,9 @@ shinyServer(function(input, output, session) {
     DatabaseConnector::querySql(connection = connection, sql = sql)
   }
   
-  .getSourcePopulation <- function(connectionDetails,
-                                   resultsDatabaseSchema) {
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "source/getPopulation.sql", 
-                                             packageName = "CdmMetadata", 
-                                             dbms = connectionDetails$dbms,
-                                             resultsDatabaseSchema = resultsDatabaseSchema)
-    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
-    on.exit(DatabaseConnector::disconnect(connection = connection))
-    
-    DatabaseConnector::querySql(connection = connection, sql = sql)
+  .getSourcePopulation <- function() {
+    df <- readRDS("data/totalPop.rds")
+    prettyNum(df$COUNT_VALUE[df$CDM_SOURCE == currentSource()$name], big.mark = ",")
   }
   
   .createSourceOverview <- function(cdmSource, parentDiv, width = 12) {
@@ -206,8 +199,7 @@ shinyServer(function(input, output, session) {
                                                              cdmSource$resultsDatabaseSchema)),
                                    div(h4("Start Date"), min(df$DATE)),
                                    div(h4("End Date"), max(df$DATE)),
-                                   div(h4("Population Count", .getSourcePopulation(connectionDetails,
-                                                                                   cdmSource$resultsDatabaseSchema))),
+                                   div(h4("Population Count", .getSourcePopulation())),
                                    plot
                )
              }, session = session)
@@ -225,6 +217,32 @@ shinyServer(function(input, output, session) {
     }
   })
   
+  observe({
+    input$btnSubmitHeel
+    input$btnDeleteHeel
+    if (currentSource()$name != "All Sources") {
+      show(id = "tasksDropdown")
+      df <- .getHeelResults()
+      
+      ratio <- nrow(df[!is.na(df$VALUE_AS_STRING),])/nrow(df)
+      
+      if (ratio < 1) {
+        output$tasksDropdown <- renderMenu({
+          items <- list(
+            taskItem(value = round(ratio * 100.00, digits = 2), color = "blue", text = "Heel Results Reviewed")
+          )
+          dropdownMenu(
+            type = "tasks", badgeStatus = "danger",
+            .list = items
+          )
+        })  
+      } else {
+        hide(id = "tasksDropdown")
+      }
+    } else {
+      hide(id = "tasksDropdown")
+    }
+  })
   
   observe({
     clicked <- event_data(event = "plotly_click", source = "C", session = session)
@@ -314,7 +332,7 @@ shinyServer(function(input, output, session) {
                        options = options,
                        selection = "single",
                        rownames = FALSE, 
-                       class = "stripe nowrap compact", extensions = c("Responsive")) %>%
+                       class = "stripe wrap compact", extensions = c("Responsive")) %>%
       formatStyle("Heel Status", #"Warning Type",
                   target = "row",
                   backgroundColor = styleEqual(c("Non-issue", "Needs Review", "Issue"),
@@ -628,7 +646,8 @@ shinyServer(function(input, output, session) {
   
  
   output$numPersons <- renderInfoBox({
-    totalPop <- readRDS("data/totalPop.rds")
+    df <- readRDS("data/totalPop.rds")
+    totalPop <- sum(df$COUNT_VALUE)
     infoBox(
       "Total Persons", prettyNum(totalPop, big.mark = ","), icon = icon("users"),
       color = "purple", fill = TRUE
@@ -729,6 +748,8 @@ shinyServer(function(input, output, session) {
     }
     if (!is.na(valueAsString)) {
       updateTextInput(session = session, inputId = "heelAnnotation", value = valueAsString)
+    } else {
+      updateTextInput(session = session, inputId = "heelAnnotation", value = "")
     }
   })
   
