@@ -14,18 +14,17 @@ Depends:
     DatabaseConnector (>= 2.0.0)
 Imports:
     dplyr,
-    rjson,
+    shinyjs,
     ParallelLogger,
     plotly,
     R.utils,
     shiny (>= 1.2.0),
+    tidyr,
+    httr,
     DT,
     shinydashboard,
     shinyWidgets,
     magrittr,
-    tidyr,
-    knitr, 
-    rmarkdown,
     shinycssloaders
 VignetteBuilder: knitr
 Remotes:

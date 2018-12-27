@@ -745,11 +745,11 @@ shinyServer(function(input, output, session) {
                 type = "scatter", mode = "lines", source = "C") %>%
           add_trace(data = meta, x = ~DATE, y = ~COUNT_VALUE, text = ~VALUE_AS_STRING, 
                     name = "Temporal Event", mode = "markers") %>%
-          layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events"))
+          layout(xaxis = list(title = "Date"), yaxis = list(title = "Prevalence Per 1000 People"))
       } else {
         plot_ly(data = df, x = ~DATE, y = ~COUNT_VALUE, name = "Concept Prevalance",
                 type = "scatter", mode = "lines", source = "C") %>%
-          layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events"))
+          layout(xaxis = list(title = "Date"), yaxis = list(title = "Prevalence Per 1000 People"))
       }
       
     } else {
