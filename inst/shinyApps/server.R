@@ -40,13 +40,21 @@ shinyServer(function(input, output, session) {
   
   conceptsMeta <- reactive({
     
+    domainDf <- as.data.frame(domainConceptIds)
+    domainDf$name <- rownames(domainDf)
+    
+    sqlFileName <- sprintf("conceptExplore/prevalenceByMonth/%s.sql",
+                           tolower(domainDf$name[domainDf == input$domainId])
+                           )
+    
     result <- tryCatch({
-      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getConceptsAndMetadata.sql",
+      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = sqlFileName,
                                                packageName = "CdmMetadata", 
-                                               dbms = connectionDetails()$dbms,
+                                               dbms = connectionDetails()$dbms, 
+                                               warnOnMissingParameters = FALSE,
                                                resultsDatabaseSchema = resultsDatabaseSchema(),
-                                               conceptId = input$conceptId,
-                                               analysisId = input$domainId)
+                                               vocabDatabaseSchema = vocabDatabaseSchema(),
+                                               conceptId = input$conceptId)
       
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
       on.exit(DatabaseConnector::disconnect(connection = connection))

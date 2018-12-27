@@ -73,8 +73,11 @@ siteSource <- list(
   
 cdmSources <- c(siteSource, cdmSources)
 
-domainConceptIds <- c("Condition" = 402, 
-                      "Procedure" = 602, "Device" = 2101, "Drug" = 702, "Measurement" = 1801, "Observation" = 802)
+
+domainConceptIds <- c("Condition" = 402,
+                      "Procedure" = 602, "Drug" = 702, "Measurement" = 1801, "Observation" = 802)
+
+# domainConceptIds <- c("Condition", "Drug", "Observation", "Measurement", "Procedure")
 
 spinnerColor <- "#0dc5c1"
 
