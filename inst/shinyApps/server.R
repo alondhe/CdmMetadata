@@ -289,9 +289,9 @@ shinyServer(function(input, output, session) {
                                    data = value, 
                                    dropTableIfExists = F, createTable = F)
     
-    # output$conceptKbPlot <- renderPlotly({
-    #   .refreshConceptPlot()
-    # })
+    output$conceptKbPlot <- renderPlotly({
+      .refreshConceptPlot()
+    })
     
     showNotification(sprintf("New Temporal Event added"))
   }
@@ -543,6 +543,52 @@ shinyServer(function(input, output, session) {
 
   
   # Output DataTable renders ------------------------------------------
+  
+  output$dtConceptSetMeta <- renderDataTable(expr = {
+    
+    row_count <- input$dtConceptSetPicker_rows_selected
+    
+    if (!is.null(row_count)) {
+      conceptSetId <- conceptSets()[row_count, ]$ID
+      concepts <- OhdsiRTools::getConceptSetConceptIds(baseUrl = baseUrl, 
+                                                       setId = conceptSetId)
+      
+      connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+      on.exit(DatabaseConnector::disconnect(connection = connection))
+      
+      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptSet/getKnownMeta.sql", 
+                                               packageName = "CdmMetadata", 
+                                               dbms = connectionDetails()$dbms,
+                                               vocabDatabaseSchema = vocabDatabaseSchema(),
+                                               resultsDatabaseSchema = resultsDatabaseSchema(),
+                                               entityConceptIds = paste(concepts, collapse = ","))
+      
+      df <- DatabaseConnector::querySql(connection = connection, sql = sql) %>%
+        dplyr::select(`Concept Id` = CONCEPT_ID,
+                      `Concept Name` = CONCEPT_NAME,
+                      `Metadata` = VALUE_AS_STRING,
+                      `Start Date` = ACTIVITY_START_DATE,
+                      `End Date` = ACTIVITY_END_DATE)
+    } else {
+      df <- data.frame()
+    }
+    
+    options <- list(pageLength = 10,
+                    searching = TRUE,
+                    lengthChange = FALSE,
+                    ordering = TRUE,
+                    paging = TRUE,
+                    scrollY = '15vh')
+    selection <- list(mode = "single", target = "row")
+    
+    table <- datatable(df,
+                       options = options,
+                       selection = "single",
+                       rownames = FALSE, 
+                       class = "stripe nowrap compact", extensions = c("Responsive"))
+    
+    table  
+  })
   
   output$dtTemporalEvent <- renderDataTable(expr = {
     input$btnAddTemporalEvent

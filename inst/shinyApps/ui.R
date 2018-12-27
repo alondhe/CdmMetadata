@@ -61,8 +61,10 @@ ui <- dashboardPage(
       tabItem("provenance",
               h3("Source Provenance"),
               helpText("Create and view metadata about the selected CDM source's provenance"),
-              div(id = "SourceDescCrud"),
-              div(id = "overviewBox")
+              fluidRow(
+                div(id = "SourceDescCrud"),
+                div(id = "overviewBox")  
+              )
               ),
       tabItem("conceptKb", 
               h3("Concept Knowledge Base"),
@@ -90,35 +92,41 @@ ui <- dashboardPage(
       tabItem("heelResults",
               h3("Achilles Heel Results"),
               helpText("Annotate and view Data Quality results from Achilles Heel"),
-              box(width = 9, DT::dataTableOutput(outputId = "dtHeelResults") %>% withSpinner(color = spinnerColor)),
-              box(width = 3, selectInput(inputId = "heelStatus", label = "Heel Status", selectize = TRUE,
-                                         choices = c("",
-                                                     "Needs Review", #= 900000519,
-                                                     "Non-issue", # = 900000518,
-                                                     "Issue"), # = 900000517),
-                              width = "250px"),
-                  textAreaInput(inputId = "heelAnnotation", label = "Heel Annotation", placeholder = "None selected",
-                                rows = 4, resize = "none", width = "250px"),
-                  div(style = "display:inline-block;text-align: left;",
-                      actionButton(inputId = "btnSubmitHeel", label = "Submit", icon = icon("check"))),
-                  div(style = "display:inline-block;text-align: left;",
-                      actionButton(inputId = "btnDeleteHeel", label = "Remove", icon = icon("minus"))))
+              fluidRow(
+                box(width = 9, DT::dataTableOutput(outputId = "dtHeelResults") %>% withSpinner(color = spinnerColor)),
+                box(width = 3, selectInput(inputId = "heelStatus", label = "Heel Status", selectize = TRUE,
+                                           choices = c("",
+                                                       "Needs Review", #= 900000519,
+                                                       "Non-issue", # = 900000518,
+                                                       "Issue"), # = 900000517),
+                                width = "250px"),
+                    textAreaInput(inputId = "heelAnnotation", label = "Heel Annotation", placeholder = "None selected",
+                                  rows = 4, resize = "none", width = "250px"),
+                    div(style = "display:inline-block;text-align: left;",
+                        actionButton(inputId = "btnSubmitHeel", label = "Submit", icon = icon("check"))),
+                    div(style = "display:inline-block;text-align: left;",
+                        actionButton(inputId = "btnDeleteHeel", label = "Remove", icon = icon("minus"))))
+              )
               ),
       tabItem("conceptSetKb",
               h3("Concept Set Knowledge Base"),
               helpText("Explore known metadata about a concept set"),
               fluidRow(
                 column(4,
-                       DT::dataTableOutput(outputId = "dtConceptSetPicker") %>% withSpinner(color="#0dc5c1"))
-              ),
-              verbatimTextOutput(outputId = "includedConcepts")
+                       DT::dataTableOutput(outputId = "dtConceptSetPicker") %>% withSpinner(color="#0dc5c1")),
+                #verbatimTextOutput(outputId = "includedConcepts")
+                column(8,
+                       DT::dataTableOutput(outputId = "dtConceptSetMeta") %>% withSpinner(color="#0dc5c1"))
+              )
               ),
       tabItem("cohortDefKb",
               h3("Cohort Knowledge Base"),
               helpText("Explore known metadata about a cohort definition"),
-              DT::dataTableOutput(outputId = "dtCohortPicker") %>% withSpinner(color="#0dc5c1"),
-              tabsetPanel(type = "tabs",
-                          tabPanel("Knowledge Base", verbatimTextOutput(outputId = "cohortConcepts"))
+              fluidRow(
+                DT::dataTableOutput(outputId = "dtCohortPicker") %>% withSpinner(color="#0dc5c1"),
+                tabsetPanel(type = "tabs",
+                            tabPanel("Knowledge Base", verbatimTextOutput(outputId = "cohortConcepts"))
+                )  
               )
           )
       )
