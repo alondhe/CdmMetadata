@@ -39,20 +39,28 @@ shinyServer(function(input, output, session) {
   # Reactives ---------------------------------------------------------------------
   
   conceptsMeta <- reactive({
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getConceptsAndMetadata.sql",
-                                             packageName = "CdmMetadata", 
-                                             dbms = connectionDetails()$dbms,
-                                             resultsDatabaseSchema = resultsDatabaseSchema(),
-                                             conceptId = input$conceptId,
-                                             analysisId = input$domainId)
-    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
-    on.exit(DatabaseConnector::disconnect(connection = connection))
     
-    df <- DatabaseConnector::querySql(connection = connection, sql = sql)
-    if (nrow(df) > 0) {
-      df$DATE <- as.Date(paste0(df$STRATUM_2, "01"), format = "%Y%m%d")
-    }
-    df
+    result <- tryCatch({
+      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getConceptsAndMetadata.sql",
+                                               packageName = "CdmMetadata", 
+                                               dbms = connectionDetails()$dbms,
+                                               resultsDatabaseSchema = resultsDatabaseSchema(),
+                                               conceptId = input$conceptId,
+                                               analysisId = input$domainId)
+      
+      connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+      on.exit(DatabaseConnector::disconnect(connection = connection))
+      
+      df <- DatabaseConnector::querySql(connection = connection, sql = sql)
+      if (nrow(df) > 0) {
+        df$DATE <- as.Date(paste0(df$STRATUM_2, "01"), format = "%Y%m%d")
+      }
+      df
+    }, error = function(e) {
+      data.frame()
+    })
+    
+    result
   })
   
   associatedTempEvents <- reactive({
