@@ -417,7 +417,7 @@ shinyServer(function(input, output, session) {
     
     plot <- plot_ly(df, x = ~DATE, y = ~COUNT_VALUE, type = "scatter", mode = "lines+markers", 
                     source = "C") %>%
-      layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Persons"))
+      layout(xaxis = list(title = "Date"), yaxis = list(title = "Persons With Continuous Observation By Month"))
     
     removeUI(selector = sprintf("#%s div:has(> .box)", parentDiv), session = session)
     
