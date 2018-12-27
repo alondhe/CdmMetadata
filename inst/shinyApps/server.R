@@ -33,9 +33,35 @@ shinyServer(function(input, output, session) {
   }
   
   .createCrudButtons(parentDiv = "SourceDescCrud", crudTypes = c("Edit"))
+  #.createCrudButtons(parentDiv = "TempEventCrud", crudTypes = c("Edit", "Delete"))
   #.createCrudButtons(parentDiv = "HeelResultsCrud", crudTypes = c("Edit", "Delete"))
   
   # Reactives ---------------------------------------------------------------------
+  
+  conceptsMeta <- reactive({
+    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getConceptsAndMetadata.sql",
+                                             packageName = "CdmMetadata", 
+                                             dbms = connectionDetails()$dbms,
+                                             resultsDatabaseSchema = resultsDatabaseSchema(),
+                                             conceptId = input$conceptId,
+                                             analysisId = input$domainId)
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    df <- DatabaseConnector::querySql(connection = connection, sql = sql)
+    if (nrow(df) > 0) {
+      df$DATE <- as.Date(paste0(df$STRATUM_2, "01"), format = "%Y%m%d")
+    }
+    df
+  })
+  
+  associatedTempEvents <- reactive({
+    if (nrow(conceptsMeta()) > 0) {
+      conceptsMeta()[!is.na(conceptsMeta()$VALUE_AS_STRING),]  
+    } else {
+      data.frame()
+    }
+  })
   
   currentSource <- reactive({
     index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
@@ -171,6 +197,117 @@ shinyServer(function(input, output, session) {
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
     DatabaseConnector::querySql(connection = connection, sql = sql)
+  }
+  
+  .deleteTemporalEvent <- function() {
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    sql <- SqlRender::renderSql(sql = "select A.meta_entity_activity_id, B.meta_value_id from @resultsDatabaseSchema.meta_entity_activity A
+                                      join @resultsDatabaseSchema.meta_value B on A.meta_entity_activity_id = B.meta_entity_activity_id
+                                      where A.entity_concept_id = @entityConceptId and A.activity_start_date = '@activityStartDate' 
+                                      and B.value_as_string = '@valueAsString';",
+                                resultsDatabaseSchema = resultsDatabaseSchema(),
+                                entityConceptId = input$conceptId,
+                                activityStartDate = input$conceptStartDate,
+                                valueAsString = input$temporalEventValue)$sql
+    
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
+    
+    df <- DatabaseConnector::querySql(connection = connection, sql = sql)
+    
+    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/deleteTemporalEvent.sql",
+                                             packageName = "CdmMetadata", 
+                                             dbms = connectionDetails()$dbms,
+                                             resultsDatabaseSchema = resultsDatabaseSchema(),
+                                             metaValueId = df$META_VALUE_ID,
+                                             metaEntityActivityId = df$META_ENTITY_ACTIVITY_ID)  
+    
+    DatabaseConnector::executeSql(connection = connection, sql = sql)
+    
+    showNotification("Temporal Event Deleted")
+    removeModal(session = session)
+  }
+  
+  .addTemporalEvent <- function() {
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    metaEntityActivityId <- .getMaxId("meta_entity_activity", "meta_entity_activity_id") + 1
+    
+    df <- data.frame(
+      meta_entity_activity_Id = metaEntityActivityId,
+      meta_agent_id = as.integer(input$selectAgent),
+      entity_concept_Id = as.integer(input$conceptId),
+      entity_as_string = NA,
+      entity_identifier = NA,
+      activity_concept_id = 0,
+      activity_type_concept_id = 0,
+      activity_as_string = "Temporal Event",
+      activity_start_date = as.Date(input$conceptStartDate),
+      activity_end_date = as.Date(input$conceptStartDate),
+      security_concept_id = 0
+    )
+    
+    DatabaseConnector::insertTable(connection = connection, 
+                                   tableName = sprintf("%s.meta_entity_activity", resultsDatabaseSchema()),
+                                   data = df, dropTableIfExists = F, createTable = F, useMppBulkLoad = F)
+    
+    metaValueId <- .getMaxId(tableName = "meta_value",
+                             fieldName = "meta_value_id") + 1
+    
+    value <- data.frame(
+      meta_value_id = metaValueId,
+      value_ordinal = 1, 
+      meta_entity_activity_id = metaEntityActivityId,
+      meta_annotation_id = NA,
+      value_concept_id = 0,
+      value_type_concept_id = 0,
+      value_as_string = input$temporalEventValue,
+      value_as_number = NA,
+      operator_concept_id = 0
+    )
+    
+    DatabaseConnector::insertTable(connection = connection, 
+                                   tableName = sprintf("%s.meta_value", resultsDatabaseSchema()), 
+                                   data = value, 
+                                   dropTableIfExists = F, createTable = F)
+    
+    # output$conceptKbPlot <- renderPlotly({
+    #   .refreshConceptPlot()
+    # })
+    
+    showNotification(sprintf("New Temporal Event added"))
+  }
+  
+  .editTemporalEvent <- function() {
+    
+    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+    on.exit(DatabaseConnector::disconnect(connection = connection))
+    
+    sql <- SqlRender::renderSql(sql = "select B.meta_value_id from @resultsDatabaseSchema.meta_entity_activity A
+                                      join @resultsDatabaseSchema.meta_value B on A.meta_entity_activity_id = B.meta_entity_activity_id
+                                      where A.entity_concept_id = @entityConceptId and A.activity_start_date = '@activityStartDate' 
+                                      and B.value_as_string = '@valueAsString';",
+                                resultsDatabaseSchema = resultsDatabaseSchema(),
+                                entityConceptId = input$conceptId,
+                                activityStartDate = input$conceptStartDate,
+                                valueAsString = input$temporalEventValue)$sql
+    
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
+    
+    metaValueId <- DatabaseConnector::querySql(connection = connection, sql = sql)
+    
+    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/updateTemporalEvent.sql",
+                                             packageName = "CdmMetadata", 
+                                             dbms = connectionDetails()$dbms,
+                                             resultsDatabaseSchema = resultsDatabaseSchema(),
+                                             metaValueId = metaValueId,
+                                             valueAsString = input$tempEventEdit)  
+    
+    DatabaseConnector::executeSql(connection = connection, sql = sql)
+    
+    showNotification("Temporal Event Changes Submitted")
   }
   
   .submitSourceDescription <- function() {
@@ -391,6 +528,36 @@ shinyServer(function(input, output, session) {
   
   # Output DataTable renders ------------------------------------------
   
+  output$dtTemporalEvent <- renderDataTable(expr = {
+    input$btnAddTemporalEvent
+    input$btnEditTemporalEvent
+    input$btnConfirmDeleteTempEvent
+    
+    if (nrow(associatedTempEvents()) > 0) {
+      metaDataTable <- dplyr::select(associatedTempEvents(), 
+                                     `Date` = DATE,
+                                     `Temporal Event` = VALUE_AS_STRING)
+    } else {
+      metaDataTable <- data.frame()
+    }
+    
+    options <- list(pageLength = 10,
+                    searching = TRUE,
+                    lengthChange = FALSE,
+                    ordering = TRUE,
+                    paging = TRUE,
+                    scrollY = '15vh')
+    selection <- list(mode = "single", target = "row")
+    
+    table <- datatable(metaDataTable,
+                       options = options,
+                       selection = "single",
+                       rownames = FALSE, 
+                       class = "stripe nowrap compact", extensions = c("Responsive"))
+    
+    table  
+  })
+  
   output$dtHeelResults <- renderDataTable(expr = {
     
     input$btnSubmitHeel
@@ -569,55 +736,17 @@ shinyServer(function(input, output, session) {
   
   .refreshConceptPlot <- function() {
 
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getConceptsAndMetadata.sql",
-                                            packageName = "CdmMetadata", 
-                                            dbms = connectionDetails()$dbms,
-                                            resultsDatabaseSchema = resultsDatabaseSchema(),
-                                            conceptId = input$conceptId,
-                                            analysisId = input$domainId)
-    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
-    on.exit(DatabaseConnector::disconnect(connection = connection))
-    
-    df <- DatabaseConnector::querySql(connection = connection, sql = sql)
+    df <- conceptsMeta()
+    meta <- associatedTempEvents()
 
     if (nrow(df) > 0) {
-      df$DATE <- as.Date(paste0(df$STRATUM_2, "01"), format = "%Y%m%d") 
-      meta <- df[!is.na(df$VALUE_AS_STRING),]
-      
       if (nrow(meta) > 0) {
-        
-        output$dtConceptPrevMeta <- renderDataTable(expr = {
-          
-          metaDataTable <- dplyr::select(meta, 
-                                         `Date` = DATE,
-                                         `Temporal Event` = VALUE_AS_STRING)
-          
-          options <- list(pageLength = 10,
-                          searching = TRUE,
-                          lengthChange = FALSE,
-                          ordering = TRUE,
-                          paging = TRUE,
-                          scrollY = '15vh')
-          selection <- list(mode = "single", target = "row")
-          
-          table <- datatable(metaDataTable,
-                             options = options,
-                             selection = "single",
-                             rownames = FALSE, 
-                             class = "stripe nowrap compact", extensions = c("Responsive"))
-          
-          table
-        })
-        
         plot_ly(data = df, x = ~DATE, y = ~COUNT_VALUE, name = "Concept Prevalance",
                 type = "scatter", mode = "lines", source = "C") %>%
           add_trace(data = meta, x = ~DATE, y = ~COUNT_VALUE, text = ~VALUE_AS_STRING, 
                     name = "Temporal Event", mode = "markers") %>%
           layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events"))
       } else {
-        output$dtConceptPrevMeta <- renderDataTable(expr = {
-          data.frame()
-        })
         plot_ly(data = df, x = ~DATE, y = ~COUNT_VALUE, name = "Concept Prevalance",
                 type = "scatter", mode = "lines", source = "C") %>%
           layout(xaxis = list(title = "Date"), yaxis = list(title = "# of Events"))
@@ -734,21 +863,6 @@ shinyServer(function(input, output, session) {
     df
   }
   
-
-  
-  # Output Text Renders -----------------------------------------------------------
-  
-  output$conceptName <- renderText({
-    
-    df <- achillesConcepts()
-    paste(input$conceptId,
-          df$CONCEPT_NAME[df$CONCEPT_ID == input$conceptId], sep = " - ")
-  })
-  
-  output$selectedConcept <- renderText({
-    input$conceptId
-  })
-  
   # Output Plotly Renders ---------------------------------------------------
   
   output$conceptKbPlot <- renderPlotly({
@@ -783,7 +897,7 @@ shinyServer(function(input, output, session) {
     uniques <- dplyr::distinct(do.call("rbind", agents))
     
     infoBox(
-      "Total Distinct Human Agents", nrow(uniques), icon = icon("user-tag"),
+      "Number of Distinct Human Agents", nrow(uniques), icon = icon("user-tag"),
       color = "red", fill = TRUE
     )
   })
@@ -803,7 +917,7 @@ shinyServer(function(input, output, session) {
     
     uniques <- dplyr::distinct(do.call("rbind", agents))
     infoBox(
-      "Total Distinct Algorithm Agents", nrow(uniques), icon = icon("code"),
+      "Number of Distinct Algorithm Agents", nrow(uniques), icon = icon("code"),
       color = "yellow", fill = TRUE
     )
   })
@@ -830,6 +944,43 @@ shinyServer(function(input, output, session) {
   
   # Observe Events ------------------------------------------------------
   
+  observeEvent(input$btnEditTemporalEvent, handlerExpr = {
+    .editTemporalEvent()
+    updateTextAreaInput(session = session, inputId = "temporalEventValue", value = "")
+    updateTextInput(session = session, inputId = "conceptStartDate", value = "")
+  }, priority = 1)
+  
+  observeEvent(input$btnDeleteTemporalEvent, handlerExpr = {
+    showModal(
+      modalDialog(
+        title = "Delete Temporal Event",
+        "Are you sure you want to delete this temporal event?",
+        actionButton(inputId = "btnConfirmDeleteTempEvent", label = "Yes, delete this temporal event")
+      )
+    )
+  })
+  
+  observeEvent(input$btnConfirmDeleteTempEvent, handlerExpr = {
+    .deleteTemporalEvent()
+    updateTextAreaInput(session = session, inputId = "temporalEventValue", value = "")
+    updateTextInput(session = session, inputId = "conceptStartDate", value = "")
+  }, priority = 1)
+  
+  observeEvent(input$btnAddTemporalEvent, handlerExpr = {
+    .addTemporalEvent()
+    updateTextInput(session = session, inputId = "conceptStartDate", value = "")
+    updateTextAreaInput(session = session, inputId = "temporalEventValue", value = "")
+  }, priority = 1)
+  
+  observeEvent(eventExpr = input$dtTemporalEvent_rows_selected, handlerExpr = {
+    row_count <- input$dtTemporalEvent_rows_selected
+    activityStartDate <- associatedTempEvents()[row_count,]$DATE
+    valueAsString <- associatedTempEvents()[row_count,]$VALUE_AS_STRING
+    updateTextInput(session = session, inputId = "conceptStartDate", value = activityStartDate)
+    updateTextAreaInput(session = session, inputId = "temporalEventValue", value = valueAsString)
+  })
+  
+
   observeEvent(eventExpr = input$btnModalEditSourceDesc, handlerExpr = {
     showModal(modalDialog(
       title = "Edit Source Description",
@@ -840,18 +991,18 @@ shinyServer(function(input, output, session) {
       actionButton(inputId = "btnEditSourceDesc", label = "Submit Changes")
     )
     )
-  })
+  }, priority = 1)
   
   observeEvent(eventExpr = input$btnEditSourceDesc, handlerExpr = {
     .submitSourceDescription()
-  })
+  }, priority = 1)
   
   observeEvent(eventExpr = input$btnEditHeelResults, handlerExpr = {
     showModal(modalDialog(
       title = "Edit Heel Result Annotation"
     )
     )
-  })
+  }, priority = 1)
   
   observeEvent(eventExpr = input$btnDeleteHeelResults, handlerExpr = {
     showModal(modalDialog(
@@ -1029,62 +1180,7 @@ shinyServer(function(input, output, session) {
     
   })
   
-  # btnAddTemporalAnnotation -----------------------
   
-  observeEvent(input$btnAddTemporalAnnotation, handlerExpr = {
-    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
-    on.exit(DatabaseConnector::disconnect(connection = connection))
-    
-    metaEntityActivityId <- .getMaxId("meta_entity_activity", "meta_entity_activity_id") + 1
-    
-    df <- data.frame(
-      meta_entity_activity_Id = metaEntityActivityId,
-      meta_agent_id = as.integer(input$selectAgent),
-      entity_concept_Id = as.integer(input$conceptId),
-      entity_as_string = NA,
-      entity_identifier = NA,
-      activity_concept_id = 0,
-      activity_type_concept_id = 0,
-      activity_as_string = "Temporal Event",
-      activity_start_date = as.Date(input$conceptStartDate),
-      activity_end_date = as.Date(input$conceptStartDate),
-      security_concept_id = 0
-    )
-    
-    DatabaseConnector::insertTable(connection = connection, 
-                                   tableName = sprintf("%s.meta_entity_activity", resultsDatabaseSchema()),
-                                   data = df, dropTableIfExists = F, createTable = F, useMppBulkLoad = F)
-    
-    metaValueId <- .getMaxId(tableName = "meta_value",
-                             fieldName = "meta_value_id") + 1
-    
-    value <- data.frame(
-      meta_value_id = metaValueId,
-      value_ordinal = 1, 
-      meta_entity_activity_id = metaEntityActivityId,
-      meta_annotation_id = NA,
-      value_concept_id = 0,
-      value_type_concept_id = 0,
-      value_as_string = input$temporalEventValue,
-      value_as_number = NA,
-      operator_concept_id = 0
-    )
-    
-    DatabaseConnector::insertTable(connection = connection, 
-                                   tableName = sprintf("%s.meta_value", resultsDatabaseSchema()), 
-                                   data = value, 
-                                   dropTableIfExists = F, createTable = F)
-    
-    output$conceptKbPlot <- renderPlotly({
-      .refreshConceptPlot()
-    })
-    
-    updateTextAreaInput(session = session, inputId = "temporalEventValue", value = "")
-    
-    showNotification(sprintf("New Temporal Event added"))
-    
-  }, priority = 1)
-
   observeEvent(input$toggleConcepts, {
     
     df <- achillesConcepts()

@@ -7,14 +7,14 @@ library(shinydashboard)
 library(shinycssloaders)
 
 ui <- dashboardPage(
-  dashboardHeader(title = "CDM Metadata", titleWidth = "300px",
+  dashboardHeader(title = "CDM METADATA", titleWidth = "300px",
                   dropdownMenuOutput(outputId = "tasksDropdown"),
-                  tags$li(a(href = 'http://www.ohdsi.org', target="_blank",
+                  tags$li(a(href = 'http://www.ohdsi.org', target = "_blank",
                             img(src = 'ohdsi_logo_mini.png',
                                 title = "OHDSI", height = "30px"),
                             style = "padding-top:10px; padding-bottom:10px;"),
                           class = "dropdown"),
-                  tags$li(a(href = atlasUrl, target="_blank",
+                  tags$li(a(href = atlasUrl, target = "_blank",
                             img(src = 'atlas_logo.png',
                                 title = "Atlas", height = "30px"),
                             style = "padding-top:10px; padding-bottom:10px;"),
@@ -34,38 +34,23 @@ ui <- dashboardPage(
                      ),
     sidebarMenu(
       id = "tabs",
-      menuItem("Sources Overview", tabName = "overview", icon = icon("sitemap"), selected = TRUE),
+      menuItem("Site Overview", tabName = "overview", icon = icon("sitemap"), selected = TRUE),
       menuItem("Source Provenance", tabName = "provenance", icon = icon("database")),
       menuItem("Heel Results", tabName = "heelResults", icon = icon("table")),
       menuItem("Concept Knowledge Base", tabName = "conceptKb", icon = icon("line-chart")),
       menuItem("Concept Set Knowledge Base", tabName = "conceptSetKb", icon = icon("list")),
       menuItem("Cohort Knowledge Base", tabName = "cohortDefKb", icon = icon("globe"))
     )
-    # conditionalPanel(condition = "input.tabs == 'provenance'",
-    #                  textAreaInput(inputId = "sourceDescription", label = "Source Description", height = "300px"),
-    #                  actionButton(inputId = "btnSubmitDescription", label = "Submit", icon = icon("check"))
-    #                  ),
-    # conditionalPanel(condition = "input.tabs == 'heelResults'", 
-    # ),
-    # conditionalPanel(condition = "input.tabs == 'conceptKb'",
-    #                  #checkboxInput(inputId = "toggleConcepts", label = "See only concepts with metadata", value = FALSE),
-    #                  selectInput(inputId = "domainId", label = "Domain", selectize = TRUE,
-    #                              choices = domainConceptIds), 
-    #                  
-    #                  selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px", selectize = TRUE,
-    #                              choices = c())
-    #                  )
   ),
   dashboardBody(
     tags$head(
       tags$link(rel = "stylesheet", type = "text/css", href = "custom.css")),
     tabItems(
       tabItem("overview",
-              h3("Sources Overview"),
-              helpText("Overview metadata about all sources from your site"),
-              #div(id = "overviewBoxes"),
+              h3("Site Overview"),
+              helpText("View metadata about all CDM sources in the site"),
               fluidRow(
-                infoBox("CDM Sources", length(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")]), 
+                infoBox("Number of CDM Sources", length(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")]), 
                         icon = icon("sitemap"), fill = TRUE),
                 infoBoxOutput(outputId = "numPersons"),
                 infoBoxOutput(outputId = "numHumanAgents"),
@@ -75,30 +60,31 @@ ui <- dashboardPage(
               ),
       tabItem("provenance",
               h3("Source Provenance"),
-              helpText("Create and view metadata about the source's provenance"),
+              helpText("Create and view metadata about the selected CDM source's provenance"),
               div(id = "SourceDescCrud"),
               div(id = "overviewBox")
               ),
       tabItem("conceptKb", 
-              h3("Concept"),
-              helpText("Create and view metadata about a concept"),
+              h3("Concept Knowledge Base"),
+              helpText("Create and view known temporal events about a concept"),
               fluidRow(
                 box(width = 3, selectInput(inputId = "domainId", label = "Domain", selectize = TRUE,
                                            choices = domainConceptIds),
                     selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px", selectize = TRUE,
                                 choices = c()),
-                    #verbatimTextOutput(outputId = "conceptName", placeholder = TRUE),
-                    #dateInput(inputId = "conceptStartDate", label = "Temporal Event Start Date", value = "1900-01-01"),
                     textInput(inputId = "conceptStartDate", label = "Selected Date"),
-                    textAreaInput(inputId = "temporalEventValue", label = "Metadata Value"),
-                    actionButton(inputId = "btnAddTemporalAnnotation", label = "Add Temporal Event Annotation")),
+                    textAreaInput(inputId = "temporalEventValue", label = "Temporal Event Description", 
+                                  placeholder = "Enter a description of the temporal event connected to this concept at the above date"),
+                    actionButton(inputId = "btnAddTemporalEvent", label = "Add", icon = icon("check")),
+                    actionButton(inputId = "btnEditTemporalEvent", label = "Edit", icon = icon("edit")),
+                    actionButton(inputId = "btnDeleteTemporalEvent", label = "Delete", icon = icon("minus"))),
                 box(width = 9, 
                     plotlyOutput(outputId = "conceptKbPlot") %>% withSpinner(color = spinnerColor) 
                 )    
               ),
               fluidRow(
                 box(width = 12,
-                    DT::dataTableOutput(outputId = "dtConceptPrevMeta")) 
+                    DT::dataTableOutput(outputId = "dtTemporalEvent") %>% withSpinner(color="#0dc5c1")) 
               )
               ),
       tabItem("heelResults",
@@ -120,6 +106,7 @@ ui <- dashboardPage(
               ),
       tabItem("conceptSetKb",
               h3("Concept Set Knowledge Base"),
+              helpText("Explore known metadata about a concept set"),
               fluidRow(
                 column(4,
                        DT::dataTableOutput(outputId = "dtConceptSetPicker") %>% withSpinner(color="#0dc5c1"))
@@ -132,7 +119,6 @@ ui <- dashboardPage(
               DT::dataTableOutput(outputId = "dtCohortPicker") %>% withSpinner(color="#0dc5c1"),
               tabsetPanel(type = "tabs",
                           tabPanel("Knowledge Base", verbatimTextOutput(outputId = "cohortConcepts"))
-                          #tabPanel("JSON", verbatimTextOutput(outputId = "cohortJson")))
               )
           )
       )
