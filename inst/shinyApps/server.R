@@ -6,7 +6,34 @@ library(httr)
 library(shinyjs)
 
 shinyServer(function(input, output, session) {
+
+  # WebAPI calls ----------------------------------
   
+  .getCohortConceptSetConcepts <- function() {
+    row_count <- input$dtCohortPicker_rows_selected
+    cohortId <- cohortDefinitions()[row_count,]$ID
+    
+    url <- sprintf("%1s/cohortdefinition/%1d", baseUrl, cohortId)
+    vocabSourceKey <- OhdsiRTools::getPriorityVocabKey(baseUrl = baseUrl)
+    
+    content <- httr::content(x = httr::GET(url = url))
+    json <- rjson::fromJSON(content$expression)
+    
+    lapply(json$ConceptSets, function(j) {
+      url <- sprintf("%1s/vocabulary/%2s/resolveConceptSetExpression", baseUrl, vocabSourceKey)
+      httpheader <- c(Accept = "application/json; charset=UTF-8", `Content-Type` = "application/json")
+      body <- rjson::toJSON(j$expression)
+      req <- httr::POST(url, body = body, config = httr::add_headers(httpheader))
+      req <- httr::content(req)
+      concepts <- unlist(req)  
+      list(
+        id = j$id,
+        name = j$name,
+        concepts = concepts
+      )
+    })
+  }
+    
   # CRUD buttons -----------------------------------
   
   .createCrudButtons <- function(parentDiv, crudTypes = c("Submit", "Edit", "Delete")) {
@@ -544,6 +571,46 @@ shinyServer(function(input, output, session) {
   
   # Output DataTable renders ------------------------------------------
   
+  output$dtCohortPicker <- renderDataTable({
+    df <- cohortDefinitions()
+    
+    options <- list(pageLength = 50,
+                    searching = TRUE,
+                    lengthChange = FALSE,
+                    ordering = TRUE,
+                    paging = TRUE,
+                    scrollY = '35vh')
+    selection <- list(mode = "single", target = "row")
+    
+    table <- datatable(df,
+                       options = options,
+                       selection = "single",
+                       rownames = FALSE, 
+                       class = "stripe wrap compact", extensions = c("Responsive"))
+    
+    table
+  })
+  
+  output$dtConceptSetPicker <- renderDataTable({
+    df <- conceptSets()
+    
+    options <- list(pageLength = 50,
+                    searching = TRUE,
+                    lengthChange = FALSE,
+                    ordering = TRUE,
+                    paging = TRUE,
+                    scrollY = '35vh')
+    selection <- list(mode = "single", target = "row")
+    
+    table <- datatable(df,
+                       options = options,
+                       selection = "single",
+                       rownames = FALSE, 
+                       class = "stripe nowrap compact", extensions = c("Responsive"))
+    
+    table
+  })
+  
   output$dtConceptSetMeta <- renderDataTable(expr = {
     
     row_count <- input$dtConceptSetPicker_rows_selected
@@ -657,55 +724,65 @@ shinyServer(function(input, output, session) {
     table
   })
 
-  output$dtCohortPicker <- renderDataTable({
-    df <- cohortDefinitions()
-
-    options <- list(pageLength = 50,
-                    searching = TRUE,
-                    lengthChange = FALSE,
-                    ordering = TRUE,
-                    paging = TRUE,
-                    scrollY = '35vh')
-    selection <- list(mode = "single", target = "row")
-    
-    table <- datatable(df,
-                       options = options,
-                       selection = "single",
-                       rownames = FALSE, 
-                       class = "stripe nowrap compact", extensions = c("Responsive"))
-    
-    table
-  })
-  
-  output$dtConceptSetPicker <- renderDataTable({
-    df <- conceptSets()
-    
-    options <- list(pageLength = 50,
-                    searching = TRUE,
-                    lengthChange = FALSE,
-                    ordering = TRUE,
-                    paging = TRUE,
-                    scrollY = '35vh')
-    selection <- list(mode = "single", target = "row")
-    
-    table <- datatable(df,
-                       options = options,
-                       selection = "single",
-                       rownames = FALSE, 
-                       class = "stripe nowrap compact", extensions = c("Responsive"))
-    
-    table
-  })
-  
-  observeEvent(eventExpr = input$dtCohortPicker_rows_selected, handlerExpr = {
+  observeEvent(eventExpr = input$btnGetCohortMeta, handlerExpr = {
     row_count <- input$dtCohortPicker_rows_selected
     cohortId <- cohortDefinitions()[row_count, ]$ID
+    parentDiv <- "cohortConceptSetsMeta"
     
-    url <- sprintf("%s/cohortdefinition/%d", baseUrl, as.integer(cohortId))
+    removeUI(selector = sprintf("#%s div:has(> .box)", parentDiv), session = session)
+    sets <- .getCohortConceptSetConcepts()
     
-    json <- httr::content(x = httr::GET(url), encoding = "json")
-
+    boxes <- c()
+    for (set in sets) {
+      connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
+      on.exit(DatabaseConnector::disconnect(connection = connection))
+      
+      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptSet/getKnownMeta.sql", 
+                                               packageName = "CdmMetadata", 
+                                               dbms = connectionDetails()$dbms,
+                                               vocabDatabaseSchema = vocabDatabaseSchema(),
+                                               resultsDatabaseSchema = resultsDatabaseSchema(),
+                                               entityConceptIds = paste(set$concepts, collapse = ","))
+      
+      df <- DatabaseConnector::querySql(connection = connection, sql = sql) 
+      options <- list(pageLength = 10,
+                      searching = TRUE,
+                      lengthChange = FALSE,
+                      ordering = TRUE,
+                      paging = TRUE,
+                      scrollY = '15vh')
+      selection <- list(mode = "single", target = "row")
+      
+      table <- datatable(df,
+                         options = options,
+                         selection = "single",
+                         rownames = FALSE, 
+                         class = "stripe wrap compact", extensions = c("Responsive"))
+      if (nrow(df) > 0) {
+        df <- dplyr::select(df,
+                            `Concept Id` = CONCEPT_ID,
+                            `Concept Name` = CONCEPT_NAME,
+                            `Metadata` = VALUE_AS_STRING,
+                            `Start Date` = ACTIVITY_START_DATE,
+                            `End Date` = ACTIVITY_END_DATE)
+        
+        boxes <- c(boxes, box(title = sprintf("Concept Set: %s (%d concepts)", set$name, nrow(df)), 
+                              collapsed = FALSE, collapsible = TRUE, 
+                              datatable(data = df)))
+      }
+    }
+    
+    if (length(boxes) > 0) {
+      insertUI(selector = sprintf("#%s", parentDiv), session = session,
+               ui = {
+                 boxes
+               })  
+    }
   })
+  
+  # observeEvent(eventExpr = input$dtCohortPicker_rows_selected, handlerExpr = {
+  #   
+  # })
   
   observeEvent(eventExpr = input$dtConceptSetPicker_rows_selected, handlerExpr = {
     row_count <- input$dtConceptSetPicker_rows_selected
@@ -714,6 +791,13 @@ shinyServer(function(input, output, session) {
                                                      setId = conceptSetId)
     
     output$includedConcepts <- renderText({ paste(concepts, collapse = ",") })
+  })
+  
+  observeEvent(eventExpr = input$dtCohortPicker_rows_selected, handlerExpr = {
+    row_count <- input$dtCohortPicker_rows_selected
+    cohortId <- cohortDefinitions()[row_count, ]$ID
+    
+    
   })
   
   # Helpers ---------------------------------------------------

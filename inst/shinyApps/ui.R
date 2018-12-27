@@ -114,7 +114,6 @@ ui <- dashboardPage(
               fluidRow(
                 column(4,
                        DT::dataTableOutput(outputId = "dtConceptSetPicker") %>% withSpinner(color="#0dc5c1")),
-                #verbatimTextOutput(outputId = "includedConcepts")
                 column(8,
                        DT::dataTableOutput(outputId = "dtConceptSetMeta") %>% withSpinner(color="#0dc5c1"))
               )
@@ -123,10 +122,11 @@ ui <- dashboardPage(
               h3("Cohort Knowledge Base"),
               helpText("Explore known metadata about a cohort definition"),
               fluidRow(
-                DT::dataTableOutput(outputId = "dtCohortPicker") %>% withSpinner(color="#0dc5c1"),
-                tabsetPanel(type = "tabs",
-                            tabPanel("Knowledge Base", verbatimTextOutput(outputId = "cohortConcepts"))
-                )  
+                column(4,
+                       DT::dataTableOutput(outputId = "dtCohortPicker") %>% withSpinner(color="#0dc5c1")),
+                column(8,
+                       actionButton(inputId = "btnGetCohortMeta", label = "Fetch Known Metadata", icon = icon("database")),
+                       div(id = "cohortConceptSetsMeta"))
               )
           )
       )

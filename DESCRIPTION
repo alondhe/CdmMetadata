@@ -25,7 +25,9 @@ Imports:
     shinydashboard,
     shinyWidgets,
     magrittr,
-    shinycssloaders
+    shinycssloaders,
+    rjson,
+    jsonlite
 VignetteBuilder: knitr
 Remotes:
     OHDSI/OhdsiRTools
