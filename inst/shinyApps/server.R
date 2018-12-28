@@ -229,7 +229,7 @@ shinyServer(function(input, output, session) {
       NULL
     }
   })
-  
+
   conceptSets <- reactive({
     if (input$cdmSource != "All Sources") {
       url <- sprintf("%1s/conceptset", baseUrl)
@@ -533,7 +533,10 @@ shinyServer(function(input, output, session) {
   
   observe({
     if (input$tabs == "conceptKb" & currentSource()$name != "All Sources") {
-      updateSelectInput(session = session, inputId = "domainId", choices = domainConceptIds)
+      
+      if (input$domainId == "") {
+        updateSelectInput(session = session, inputId = "domainId", choices = domainConceptIds)  
+      }
       
       # nothing in the textbox, so can't do anything
       if (input$temporalEventValue == "" | input$conceptStartDate == "") {
@@ -541,7 +544,6 @@ shinyServer(function(input, output, session) {
         shinyjs::hide(id = "btnEditTemporalEvent")
         shinyjs::hide(id = "btnDeleteTemporalEvent")
       } else if (length(input$dtTemporalEvent_rows_selected) == 0) {
-        updateTextAreaInput(session = session, inputId = "temporalEventValue", value = "")
         shinyjs::show(id = "btnAddTemporalEvent")
         shinyjs::hide(id = "btnEditTemporalEvent")
         shinyjs::hide(id = "btnDeleteTemporalEvent")
@@ -811,15 +813,26 @@ shinyServer(function(input, output, session) {
   })
 
   observeEvent(eventExpr = input$btnGetCohortMeta, handlerExpr = {
+    options <- list(pageLength = 10,
+                    searching = TRUE,
+                    lengthChange = FALSE,
+                    ordering = TRUE,
+                    paging = TRUE,
+                    scrollY = '15vh')
+    selection <- list(mode = "single", target = "row")
+    
+    showModal(
+      modalDialog(size = "s",
+        title = "Get Known Cohort Metadata",
+        "Loading..."
+      )
+    )
+    
     row_count <- input$dtCohortPicker_rows_selected
     cohortId <- cohortDefinitions()[row_count, ]$ID
-    parentDiv <- "cohortConceptSetsMeta"
-    
-    removeUI(selector = sprintf("#%s div:has(> .box)", parentDiv), session = session)
     sets <- .getCohortConceptSetConcepts()
     
-    boxes <- c()
-    for (set in sets) {
+    tables <- lapply(sets, function(set) {
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
       on.exit(DatabaseConnector::disconnect(connection = connection))
       
@@ -831,44 +844,36 @@ shinyServer(function(input, output, session) {
                                                entityConceptIds = paste(set$concepts, collapse = ","))
       
       df <- DatabaseConnector::querySql(connection = connection, sql = sql) 
-      options <- list(pageLength = 10,
-                      searching = TRUE,
-                      lengthChange = FALSE,
-                      ordering = TRUE,
-                      paging = TRUE,
-                      scrollY = '15vh')
-      selection <- list(mode = "single", target = "row")
       
-      table <- datatable(df,
-                         options = options,
-                         selection = "single",
-                         rownames = FALSE, 
-                         class = "stripe wrap compact", extensions = c("Responsive"))
       if (nrow(df) > 0) {
-        df <- dplyr::select(df,
-                            `Concept Id` = CONCEPT_ID,
-                            `Concept Name` = CONCEPT_NAME,
-                            `Metadata` = VALUE_AS_STRING,
-                            `Start Date` = ACTIVITY_START_DATE,
-                            `End Date` = ACTIVITY_END_DATE)
-        
-        boxes <- c(boxes, box(title = sprintf("Concept Set: %s (%d concepts)", set$name, nrow(df)), 
-                              collapsed = FALSE, collapsible = TRUE, 
-                              datatable(data = df)))
+        list(id = set$id,
+             name = set$name, 
+             data = dplyr::select(df,
+                      `Concept Id` = CONCEPT_ID,
+                      `Concept Name` = CONCEPT_NAME,
+                      `Metadata` = VALUE_AS_STRING,
+                      `Start Date` = ACTIVITY_START_DATE,
+                      `End Date` = ACTIVITY_END_DATE))
+      } else {
+        NULL
       }
-    }
+    })
+    removeModal(session = session)
+    tables <- tables[sapply(tables, function(t) !is.null(t))]
     
-    if (length(boxes) > 0) {
-      insertUI(selector = sprintf("#%s", parentDiv), session = session,
-               ui = {
-                 boxes
-               })  
+    newTabs <- lapply(tables, function(t) {
+      tabPanel(title = t$name, 
+               dataTableOutput(outputId = sprintf("kcm%d", t$id))) 
+    })
+    
+    output$knownCohortMeta <- renderUI({
+      do.call(tabsetPanel, newTabs)
+    })
+    
+    for (t in tables) {
+      output[[sprintf("kcm%d", t$id)]] <- renderDataTable(t$data)
     }
   })
-  
-  # observeEvent(eventExpr = input$dtCohortPicker_rows_selected, handlerExpr = {
-  #   
-  # })
   
   observeEvent(eventExpr = input$dtConceptSetPicker_rows_selected, handlerExpr = {
     row_count <- input$dtConceptSetPicker_rows_selected

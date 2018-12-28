@@ -129,11 +129,13 @@ ui <- dashboardPage(
               h3("Cohort Knowledge Base"),
               helpText("Explore known metadata about a cohort definition"),
               fluidRow(
-                column(4,
+                column(5,
                        DT::dataTableOutput(outputId = "dtCohortPicker") %>% withSpinner(color="#0dc5c1")),
-                column(8,
+                column(7,
                        actionButton(inputId = "btnGetCohortMeta", label = "Fetch Known Metadata", icon = icon("database")),
-                       div(id = "cohortConceptSetsMeta"))
+                       br(),
+                       uiOutput(outputId = "knownCohortMeta")
+                )
               )
           )
       )
