@@ -61,11 +61,12 @@ shinyServer(function(input, output, session) {
       connectionDetails <- .getConnectionDetails(cdmSource)
       
       if (!file.exists(rdsFile)) {
-        sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getAchillesConcepts.sql",
-                                                 packageName = "CdmMetadata", 
-                                                 dbms = connectionDetails$dbms,
-                                                 resultsDatabaseSchema = cdmSource$resultsDatabaseSchema,
-                                                 vocabDatabaseSchema = cdmSource$vocabDatabaseSchema)
+        sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "conceptExplore/getAchillesConcepts.sql"))
+        sql <- SqlRender::renderSql(sql = sql, 
+                                     resultsDatabaseSchema = cdmSource$resultsDatabaseSchema,
+                                     vocabDatabaseSchema = cdmSource$vocabDatabaseSchema)$sql
+        sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
+        
         connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
         df <- DatabaseConnector::querySql(connection = connection, sql = sql)
         saveRDS(object = df, file = rdsFile) 
@@ -263,13 +264,13 @@ shinyServer(function(input, output, session) {
       sqlFileName <- sprintf("conceptExplore/prevalenceByMonth/%s.sql",
                              tolower(domainDf$name[domainDf == input$domainId])
       )
-      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = sqlFileName,
-                                               packageName = "CdmMetadata", 
-                                               dbms = connectionDetails()$dbms, 
-                                               warnOnMissingParameters = FALSE,
-                                               resultsDatabaseSchema = resultsDatabaseSchema(),
-                                               vocabDatabaseSchema = vocabDatabaseSchema(),
-                                               conceptId = input$conceptId)
+      sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, sqlFileName))
+      sql <- SqlRender::renderSql(sql = sql, 
+                                   warnOnMissingParameters = FALSE,
+                                   resultsDatabaseSchema = resultsDatabaseSchema(),
+                                   vocabDatabaseSchema = vocabDatabaseSchema(),
+                                   conceptId = input$conceptId)$sql
+      sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
       
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
       on.exit(DatabaseConnector::disconnect(connection = connection))
@@ -394,13 +395,13 @@ shinyServer(function(input, output, session) {
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getPrevalence.sql", 
-                                             packageName = "CdmMetadata", 
-                                             dbms = connectionDetails()$dbms,
-                                             resultsDatabaseSchema = resultsDatabaseSchema(),
-                                             conceptId = input$conceptId,
-                                             analysisId = input$domainId)
-    
+    sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "conceptExplore/getPrevalence.sql"))
+    sql <- SqlRender::renderSql(sql = sql, 
+                                 resultsDatabaseSchema = resultsDatabaseSchema(),
+                                 conceptId = input$conceptId,
+                                 analysisId = input$domainId)$sql
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
+
     df <- DatabaseConnector::querySql(connection = connection, sql = sql)
     if (nrow(df) > 0) {
       df$STRATUM_2 <- as.Date(paste0(df$STRATUM_2, '01'), format='%Y%m%d')  
@@ -414,12 +415,12 @@ shinyServer(function(input, output, session) {
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
       on.exit(DatabaseConnector::disconnect(connection = connection))
       
-      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getChartEntityActivity.sql", 
-                                               packageName = "CdmMetadata", 
-                                               dbms = connectionDetails()$dbms,
-                                               resultsDatabaseSchema = resultsDatabaseSchema(),
-                                               entityConceptId = input$conceptId)
-      
+      sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "conceptExplore/getChartEntityActivity.sql"))
+      sql <- SqlRender::renderSql(sql = sql, 
+                                   resultsDatabaseSchema = resultsDatabaseSchema(),
+                                   entityConceptId = input$conceptId)$sql
+      sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
+
       DatabaseConnector::querySql(connection = connection, sql = sql)
     } else {
       data.frame()
@@ -429,10 +430,11 @@ shinyServer(function(input, output, session) {
   .getObservationPeriodDates <- function(connectionDetails,
                                          resultsDatabaseSchema) {
     
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "source/getObservationPeriods.sql", 
-                                             packageName = "CdmMetadata", 
-                                             dbms = connectionDetails$dbms,
-                                             resultsDatabaseSchema = resultsDatabaseSchema)
+    sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "source/getObservationPeriods.sql"))
+    sql <- SqlRender::renderSql(sql = sql, 
+                                resultsDatabaseSchema = resultsDatabaseSchema)$sql
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails)$dbms
+    
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
@@ -441,10 +443,11 @@ shinyServer(function(input, output, session) {
   
   .getSourceDescription <- function(connectionDetails,
                                     resultsDatabaseSchema) {
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "source/getDescription.sql", 
-                                             packageName = "CdmMetadata", 
-                                             dbms = connectionDetails$dbms,
-                                             resultsDatabaseSchema = resultsDatabaseSchema)
+    sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "source/getDescription.sql"))
+    sql <- SqlRender::renderSql(sql = sql, 
+                                resultsDatabaseSchema = resultsDatabaseSchema)$sql
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
+    
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
@@ -468,12 +471,12 @@ shinyServer(function(input, output, session) {
     
     df <- DatabaseConnector::querySql(connection = connection, sql = sql)
     
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/deleteTemporalEvent.sql",
-                                             packageName = "CdmMetadata", 
-                                             dbms = connectionDetails()$dbms,
-                                             resultsDatabaseSchema = resultsDatabaseSchema(),
-                                             metaValueId = df$META_VALUE_ID,
-                                             metaEntityActivityId = df$META_ENTITY_ACTIVITY_ID)  
+    sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "conceptExplore/deleteTemporalEvent.sql"))
+    sql <- SqlRender::renderSql(sql = sql,
+                                resultsDatabaseSchema = resultsDatabaseSchema(),
+                               metaValueId = df$META_VALUE_ID,
+                               metaEntityActivityId = df$META_ENTITY_ACTIVITY_ID)$sql
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
     
     DatabaseConnector::executeSql(connection = connection, sql = sql)
     
@@ -553,12 +556,12 @@ shinyServer(function(input, output, session) {
     
     metaValueId <- DatabaseConnector::querySql(connection = connection, sql = sql)
     
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/updateTemporalEvent.sql",
-                                             packageName = "CdmMetadata", 
-                                             dbms = connectionDetails()$dbms,
-                                             resultsDatabaseSchema = resultsDatabaseSchema(),
-                                             metaValueId = metaValueId,
-                                             valueAsString = input$temporalEventValue)  
+    sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "conceptExplore/updateTemporalEvent.sql"))
+    sql <- SqlRender::renderSql(sql = sql, 
+                                 resultsDatabaseSchema = resultsDatabaseSchema(),
+                                 metaValueId = metaValueId,
+                                 valueAsString = input$temporalEventValue)$sql
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
     
     DatabaseConnector::executeSql(connection = connection, sql = sql)
     
@@ -623,14 +626,14 @@ shinyServer(function(input, output, session) {
                                      dropTableIfExists = F, createTable = F)
       
     } else {
-      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "source/updateDescription.sql",
-                                               packageName = "CdmMetadata", 
-                                               dbms = connectionDetails()$dbms,
-                                               resultsDatabaseSchema = resultsDatabaseSchema(),
-                                               metaValueId = df$META_VALUE_ID,
-                                               metaEntityActivityId = df$META_ENTITY_ACTIVITY_ID,
-                                               metaAgentId = input$selectAgent,
-                                               valueAsString = input$sourceDescEdit)  
+      sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "source/updateDescription.sql"))
+      sql <- SqlRender::renderSql(sql = sql,
+                                   resultsDatabaseSchema = resultsDatabaseSchema(),
+                                   metaValueId = df$META_VALUE_ID,
+                                   metaEntityActivityId = df$META_ENTITY_ACTIVITY_ID,
+                                   metaAgentId = input$selectAgent,
+                                   valueAsString = input$sourceDescEdit)$sql
+      sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
       
       DatabaseConnector::executeSql(connection = connection, sql = sql)
     }
@@ -861,12 +864,12 @@ shinyServer(function(input, output, session) {
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
       on.exit(DatabaseConnector::disconnect(connection = connection))
       
-      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptSet/getKnownMeta.sql", 
-                                               packageName = "CdmMetadata", 
-                                               dbms = connectionDetails()$dbms,
-                                               vocabDatabaseSchema = vocabDatabaseSchema(),
-                                               resultsDatabaseSchema = resultsDatabaseSchema(),
-                                               entityConceptIds = paste(concepts, collapse = ","))
+      sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "conceptSet/getKnownMeta.sql"))
+      sql <- SqlRender::renderSql(sql = sql, 
+                                  vocabDatabaseSchema = vocabDatabaseSchema(),
+                                 resultsDatabaseSchema = resultsDatabaseSchema(),
+                                 entityConceptIds = paste(concepts, collapse = ","))$sql
+      sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
       
       df <- DatabaseConnector::querySql(connection = connection, sql = sql) %>%
         dplyr::select(`Concept Id` = CONCEPT_ID,
@@ -991,12 +994,12 @@ shinyServer(function(input, output, session) {
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
       on.exit(DatabaseConnector::disconnect(connection = connection))
       
-      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptSet/getKnownMeta.sql", 
-                                               packageName = "CdmMetadata", 
-                                               dbms = connectionDetails()$dbms,
-                                               vocabDatabaseSchema = vocabDatabaseSchema(),
-                                               resultsDatabaseSchema = resultsDatabaseSchema(),
-                                               entityConceptIds = paste(set$concepts, collapse = ","))
+      sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "conceptSet/getKnownMeta.sql"))
+      sql <- SqlRender::renderSql(sql = sql, 
+                                  vocabDatabaseSchema = vocabDatabaseSchema(),
+                                 resultsDatabaseSchema = resultsDatabaseSchema(),
+                                 entityConceptIds = paste(set$concepts, collapse = ","))$sql
+      sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
       
       df <- DatabaseConnector::querySql(connection = connection, sql = sql) 
       
@@ -1151,10 +1154,10 @@ shinyServer(function(input, output, session) {
   }
   
   .getHeelResults <- function() {
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "heelResults/getHeels.sql", 
-                                             packageName = "CdmMetadata", 
-                                             dbms = connectionDetails()$dbms,
-                                             resultsDatabaseSchema = resultsDatabaseSchema())
+    sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "heelResults/getHeels.sql"))
+    sql <- SqlRender::renderSql(sql = sql, 
+                                resultsDatabaseSchema = resultsDatabaseSchema())$sql
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
     
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
     on.exit(DatabaseConnector::disconnect(connection = connection))
@@ -1781,15 +1784,15 @@ shinyServer(function(input, output, session) {
     metaValueId <- .getValues(metaEntityActivityId = metaEntityActivityId, 
                               metaAnnotationId = metaAnnotationId)$META_VALUE_ID
     
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "heelResults/updateHeel.sql",
-                                             dbms = connectionDetails()$dbms, 
-                                             packageName = "CdmMetadata",
-                                             resultsDatabaseSchema = resultsDatabaseSchema(),
-                                             metaAgentId = input$selectAgent,
-                                             annotationAsString = annotationAsString,
-                                             metaAnnotationId = metaAnnotationId,
-                                             metaValueId = metaValueId,
-                                             valueAsString = valueAsString)
+    sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "heelResults/updateHeel.sql"))
+    sql <- SqlRender::renderSql(sql = sql,
+                               resultsDatabaseSchema = resultsDatabaseSchema(),
+                               metaAgentId = input$selectAgent,
+                               annotationAsString = annotationAsString,
+                               metaAnnotationId = metaAnnotationId,
+                               metaValueId = metaValueId,
+                               valueAsString = valueAsString)$sql
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
     
     DatabaseConnector::executeSql(connection = connection, sql = sql)
     
@@ -1812,14 +1815,14 @@ shinyServer(function(input, output, session) {
     metaValueId <- (.getValues(metaEntityActivityId = metaEntityActivityId,
                                metaAnnotationId = metaAnnotationId))$META_VALUE_ID
     
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "heelResults/deleteHeel.sql", 
-                                             packageName = "CdmMetadata", 
-                                             dbms = connectionDetails()$dbms,
-                                             resultsDatabaseSchema = resultsDatabaseSchema(),
-                                             metaEntityActivityId = metaEntityActivityId,
-                                             metaAnnotationId = metaAnnotationId,
-                                             metaValueId = metaValueId)
-    
+    sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "heelResults/deleteHeel.sql"))
+    sql <- SqlRender::renderSql(sql = sql,
+                                 resultsDatabaseSchema = resultsDatabaseSchema(),
+                                 metaEntityActivityId = metaEntityActivityId,
+                                 metaAnnotationId = metaAnnotationId,
+                                 metaValueId = metaValueId)$sql
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)
+
     DatabaseConnector::executeSql(connection = connection, sql = sql)
     
     showNotification("Heel Annotation Removed")
@@ -1943,17 +1946,16 @@ shinyServer(function(input, output, session) {
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
-    
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "management/updateAgent.sql", 
-                                             packageName = "CdmMetadata", 
-                                             dbms = connectionDetails()$dbms,
-                                             resultsDatabaseSchema = resultsDatabaseSchema(),
-                                             agentFirstName = agentFirstName,
-                                             agentLastName = agentLastName,
-                                             agentSuffix = agentSuffix,
-                                             agentAlgorithm = agentAlgorithm,
-                                             agentDescription = agentDescription,
-                                             metaAgentId = metaAgentId)
+    sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "management/updateAgent.sql"))
+    sql <- SqlRender::renderSql(sql = sql,
+                                resultsDatabaseSchema = resultsDatabaseSchema(),
+                               agentFirstName = agentFirstName,
+                               agentLastName = agentLastName,
+                               agentSuffix = agentSuffix,
+                               agentAlgorithm = agentAlgorithm,
+                               agentDescription = agentDescription,
+                               metaAgentId = metaAgentId)$sql
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
     
     DatabaseConnector::executeSql(connection = connection, sql = sql)
     
@@ -1977,21 +1979,21 @@ shinyServer(function(input, output, session) {
     
     row_count <- input$dtEntityActivity_rows_selected
     
-    sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "management/updateEntityActivity.sql", 
-                                             packageName = "CdmMetadata", 
-                                             dbms = connectionDetails()$dbms,
-                                             resultsDatabaseSchema = resultsDatabaseSchema(),
-                                             entityConceptId = input$entityConceptId,
-                                             entityAsString = input$entityAsString,
-                                             entityIdentifier = ifelse(input$entityIdentifier == "", "NULL", as.integer(input$entityIdentifier)),
-                                             activityConceptId = input$activityConceptId,
-                                             activityTypeConceptId = input$activityTypeConceptId,
-                                             activityAsString = input$activityAsString,
-                                             activityStartDate = input$activityDates[1],
-                                             activityEndDate = input$activityDates[2],
-                                             securityConceptId = input$securityConceptIdEA,
-                                             metaEntityActivityId = .getEntityActivities()[row_count,]$META_ENTITY_ACTIVITY_ID)
-    
+    sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "management/updateEntityActivity.sql"))
+    sql <- SqlRender::renderSql(sql = sql,
+                                resultsDatabaseSchema = resultsDatabaseSchema(),
+                               entityConceptId = input$entityConceptId,
+                               entityAsString = input$entityAsString,
+                               entityIdentifier = ifelse(input$entityIdentifier == "", "NULL", as.integer(input$entityIdentifier)),
+                               activityConceptId = input$activityConceptId,
+                               activityTypeConceptId = input$activityTypeConceptId,
+                               activityAsString = input$activityAsString,
+                               activityStartDate = input$activityDates[1],
+                               activityEndDate = input$activityDates[2],
+                               securityConceptId = input$securityConceptIdEA,
+                               metaEntityActivityId = .getEntityActivities()[row_count,]$META_ENTITY_ACTIVITY_ID)$sql
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
+
     DatabaseConnector::executeSql(connection = connection, sql = sql)
     
     showNotification(sprintf("Entity/Activity record updated"))
@@ -2003,30 +2005,30 @@ shinyServer(function(input, output, session) {
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
     if (isAnnotation) {
-      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "management/updateValue.sql", 
-                                               packageName = "CdmMetadata", 
-                                               dbms = connectionDetails()$dbms,
-                                               resultsDatabaseSchema = resultsDatabaseSchema(),
-                                               metaValueId = metaValueId,
-                                               valueOrdinal = input$valueOrdinalAnn,
-                                               valueConceptId = input$valueConceptIdAnn,
-                                               valueTypeConceptId = input$valueTypeConceptIdAnn,
-                                               valueAsString = input$valueAsStringAnn,
-                                               valueAsNumber = input$valueAsNumberAnn,
-                                               operatorConceptId = input$operatorConceptIdAnn)
+      sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "management/updateValue.sql"))
+      sql <- SqlRender::renderSql(sql = sql,
+                                  resultsDatabaseSchema = resultsDatabaseSchema(),
+                                 metaValueId = metaValueId,
+                                 valueOrdinal = input$valueOrdinalAnn,
+                                 valueConceptId = input$valueConceptIdAnn,
+                                 valueTypeConceptId = input$valueTypeConceptIdAnn,
+                                 valueAsString = input$valueAsStringAnn,
+                                 valueAsNumber = input$valueAsNumberAnn,
+                                 operatorConceptId = input$operatorConceptIdAnn)$sql
+      sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
       
     } else {
-      sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "management/updateValue.sql", 
-                                               packageName = "CdmMetadata", 
-                                               dbms = connectionDetails()$dbms,
-                                               resultsDatabaseSchema = resultsDatabaseSchema(),
-                                               metaValueId = metaValueId,
-                                               valueOrdinal = input$valueOrdinalEA,
-                                               valueConceptId = input$valueConceptIdEA,
-                                               valueTypeConceptId = input$valueTypeConceptIdEA,
-                                               valueAsString = input$valueAsStringEA,
-                                               valueAsNumber = input$valueAsNumberEA,
-                                               operatorConceptId = input$operatorConceptIdEA)
+      sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "management/updateValue.sql"))
+      sql <- SqlRender::renderSql(sql = sql, 
+                                  resultsDatabaseSchema = resultsDatabaseSchema(),
+                                   metaValueId = metaValueId,
+                                   valueOrdinal = input$valueOrdinalEA,
+                                   valueConceptId = input$valueConceptIdEA,
+                                   valueTypeConceptId = input$valueTypeConceptIdEA,
+                                   valueAsString = input$valueAsStringEA,
+                                   valueAsNumber = input$valueAsNumberEA,
+                                   operatorConceptId = input$operatorConceptIdEA)$sql
+      sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
       
     }
     
