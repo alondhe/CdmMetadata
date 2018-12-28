@@ -42,3 +42,4 @@ output/
 *.log
 
 extras/sources.json
+inst/shinyApps/data

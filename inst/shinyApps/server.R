@@ -65,7 +65,7 @@ shinyServer(function(input, output, session) {
         sql <- SqlRender::renderSql(sql = sql, 
                                      resultsDatabaseSchema = cdmSource$resultsDatabaseSchema,
                                      vocabDatabaseSchema = cdmSource$vocabDatabaseSchema)$sql
-        sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
+        sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
         
         connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
         df <- DatabaseConnector::querySql(connection = connection, sql = sql)
@@ -221,7 +221,7 @@ shinyServer(function(input, output, session) {
       )
     })
   }
-    
+  
   # CRUD buttons -----------------------------------
   
   .createCrudButtons <- function(parentDiv, crudTypes = c("Submit", "Edit", "Delete")) {
@@ -433,7 +433,7 @@ shinyServer(function(input, output, session) {
     sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "source/getObservationPeriods.sql"))
     sql <- SqlRender::renderSql(sql = sql, 
                                 resultsDatabaseSchema = resultsDatabaseSchema)$sql
-    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails)$dbms
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
     
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
     on.exit(DatabaseConnector::disconnect(connection = connection))
