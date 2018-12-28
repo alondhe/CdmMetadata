@@ -2,7 +2,7 @@ Package: CdmMetadata
 Type: Package
 Title: Prototypes CDM Metadata and Annotations tables within a CDM database
 Version: 0.0.1
-Date: 2018-11-21
+Date: 2018-12-27
 Authors@R: c(
     person("Ajit", "Londhe", email = "alondhe2@its.jnj.com", role = c("aut", "cre"))
   )
@@ -27,7 +27,8 @@ Imports:
     magrittr,
     shinycssloaders,
     rjson,
-    jsonlite
+    jsonlite,
+    lubridate
 VignetteBuilder: knitr
 Remotes:
     OHDSI/OhdsiRTools

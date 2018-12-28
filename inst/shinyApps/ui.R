@@ -71,10 +71,10 @@ ui <- dashboardPage(
               helpText("Create and view known temporal events about a concept"),
               fluidRow(
                 box(width = 3, selectInput(inputId = "domainId", label = "Domain", selectize = TRUE,
-                                           choices = domainConceptIds),
+                                           choices = c()),
                     selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px", selectize = TRUE,
                                 choices = c()),
-                    textInput(inputId = "conceptStartDate", label = "Selected Date"),
+                    selectInput(inputId = "conceptStartDate", label = "Select Date", choices = c()),
                     textAreaInput(inputId = "temporalEventValue", label = "Temporal Event Description", 
                                   placeholder = "Enter a description of the temporal event connected to this concept at the above date"),
                     actionButton(inputId = "btnAddTemporalEvent", label = "Add", icon = icon("check")),
@@ -95,8 +95,8 @@ ui <- dashboardPage(
               fluidRow(
                 box(width = 9, DT::dataTableOutput(outputId = "dtHeelResults") %>% withSpinner(color = spinnerColor)),
                 box(width = 3, 
-                    downloadButton(outputId = "downloadHeelResults", label = "Download Heel Results"),
-                    fileInput(inputId = "uploadHeelAnnotations", label = "Choose CSV of Heel Annotations",
+                    div(strong("(1) Download Current Heel Results"), downloadButton(outputId = "downloadHeelResults", label = "Download CSV")),
+                    fileInput(inputId = "uploadHeelAnnotations", label = "(2) Annotate the CSV and re-upload",
                               multiple = FALSE,
                               accept = c("text/csv",
                                          "text/comma-separated-values,text/plain",
