@@ -100,6 +100,12 @@ shinyServer(function(input, output, session) {
   if (!file.exists(jsonPath)) {
     updateTabItems(session = session, inputId = "tabs", selected = "config")
   } else {
+    cdmSources <- (readRDS(jsonPath))$sources
+    siteSource <- list(
+      list(name = "All Sources")
+    )
+    cdmSources <- c(siteSource, cdmSources)
+    updateSelectInput(session = session, inputId = "cdmSource", choices = lapply(cdmSources, function(c) c$name))
     updateTabItems(session = session, inputId = "tabs", selected = "overview")
   }
 
