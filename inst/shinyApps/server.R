@@ -501,7 +501,7 @@ shinyServer(function(input, output, session) {
       activity_as_string = "Temporal Event",
       activity_start_date = ymd(format(as.Date(input$conceptStartDate), "%Y-%m-01")),
       activity_end_date = ymd(format(as.Date(input$conceptStartDate), "%Y-%m-01")),
-      security_concept_id = 0
+      security_concept_id = 0, stringsAsFactors = FALSE
     )
     
     DatabaseConnector::insertTable(connection = connection, 
@@ -520,7 +520,7 @@ shinyServer(function(input, output, session) {
       value_type_concept_id = 0,
       value_as_string = input$temporalEventValue,
       value_as_number = NA,
-      operator_concept_id = 0
+      operator_concept_id = 0, stringsAsFactors = FALSE
     )
     
     DatabaseConnector::insertTable(connection = connection, 
@@ -596,7 +596,7 @@ shinyServer(function(input, output, session) {
         activity_as_string = "Source Provenance",
         activity_start_date = NA,
         activity_end_date = NA,
-        security_concept_id = 0
+        security_concept_id = 0, stringsAsFactors = FALSE
       )
       
       DatabaseConnector::insertTable(connection = connection, 
@@ -617,7 +617,7 @@ shinyServer(function(input, output, session) {
         value_type_concept_id = 0,
         value_as_string = input$sourceDescEdit,
         value_as_number = NA,
-        operator_concept_id = 0
+        operator_concept_id = 0, stringsAsFactors = FALSE
       )
       
       DatabaseConnector::insertTable(connection = connection, 
@@ -1640,7 +1640,7 @@ shinyServer(function(input, output, session) {
       activity_as_string = "Temporal Event",
       activity_start_date = as.Date(input$conceptStartDate),
       activity_end_date = NA,
-      security_concept_id = 0
+      security_concept_id = 0, stringsAsFactors = FALSE
     )
     
     DatabaseConnector::insertTable(connection = connection, 
@@ -1663,7 +1663,7 @@ shinyServer(function(input, output, session) {
       value_type_concept_id = 0,
       value_as_string = input$conceptAnnotation,
       value_as_number = NA,
-      operator_concept_id = 0
+      operator_concept_id = 0, stringsAsFactors = FALSE
     )
     
     DatabaseConnector::insertTable(connection = connection, 
@@ -1705,7 +1705,7 @@ shinyServer(function(input, output, session) {
       activity_as_string = activityAsString,
       activity_start_date = NA,
       activity_end_date = NA,
-      security_concept_id = 0
+      security_concept_id = 0, stringsAsFactors = FALSE
     )
     
     DatabaseConnector::insertTable(connection = connection, 
@@ -1723,7 +1723,7 @@ shinyServer(function(input, output, session) {
       annotation_concept_id = 0,
       annotation_as_string = annotationAsString,
       annotation_type_concept_id = 0,
-      security_concept_id = 0
+      security_concept_id = 0, stringsAsFactors = FALSE
     )
     
     DatabaseConnector::insertTable(connection = connection, 
@@ -1743,7 +1743,7 @@ shinyServer(function(input, output, session) {
       value_type_concept_id = 0,
       value_as_string = valueAsString,
       value_as_number = NA,
-      operator_concept_id = 0
+      operator_concept_id = 0, stringsAsFactors = FALSE
     )
     
     DatabaseConnector::insertTable(connection = connection, 
@@ -1843,7 +1843,7 @@ shinyServer(function(input, output, session) {
         agent_last_name = input$agentLastName,
         agent_suffix = input$agentSuffix,
         agent_algorithm = input$agentAlgorithm,
-        agent_description = input$agentDescription
+        agent_description = input$agentDescription, stringsAsFactors = FALSE
       )
       
       df[df == ""] <- NA
@@ -1870,7 +1870,7 @@ shinyServer(function(input, output, session) {
       row_count <- input$dtAgent_rows_selected
       metaAgentId <- .getAgents()[row_count, ]$META_AGENT_ID
 
-        df <- data.frame(
+      df <- data.frame(
         meta_entity_activity_Id = .getMaxId("meta_entity_activity", "meta_entity_activity_id") + 1,
         meta_agent_id = as.integer(metaAgentId),
         entity_Concept_Id = as.integer(input$entityConceptId),
@@ -1881,7 +1881,7 @@ shinyServer(function(input, output, session) {
         activity_As_String = input$activityAsString,
         activity_Start_Date = input$activityDates[1],
         activity_End_Date = input$activityDates[2],
-        security_Concept_Id = as.integer(input$securityConceptIdEA)
+        security_Concept_Id = as.integer(input$securityConceptIdEA), stringsAsFactors = FALSE
       )
       
       DatabaseConnector::insertTable(connection = connection, 
@@ -1910,7 +1910,7 @@ shinyServer(function(input, output, session) {
         value_type_concept_id = as.integer(input$valueTypeConceptIdAnn),
         value_as_string = input$valueAsStringAnn,
         value_as_number = as.numeric(input$valueAsNumberAnn),
-        operator_concept_id = as.integer(input$operatorConceptIdAnn)
+        operator_concept_id = as.integer(input$operatorConceptIdAnn), stringsAsFactors = FALSE
       )
     } else {
       suffix <- "EA"
@@ -1923,7 +1923,7 @@ shinyServer(function(input, output, session) {
         value_type_concept_id = as.integer(input$valueTypeConceptIdEA),
         value_as_string = input$valueAsStringEA,
         value_as_number = as.numeric(input$valueAsNumberEA),
-        operator_concept_id = as.integer(input$operatorConceptIdEA)
+        operator_concept_id = as.integer(input$operatorConceptIdEA), stringsAsFactors = FALSE
       )
     }
       
