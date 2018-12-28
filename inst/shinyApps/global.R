@@ -81,3 +81,5 @@ domainConceptIds <- c("Condition" = 402,
 
 spinnerColor <- "#0dc5c1"
 
+heelIssueTypes <- c("Non-issue", "Needs Review", "Issue")
+

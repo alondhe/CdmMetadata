@@ -7,6 +7,68 @@ library(shinyjs)
 
 shinyServer(function(input, output, session) {
 
+  # Heel Results download / upload --------------------------------------------
+  
+  heelFileInput <- reactiveValues(
+    clear = FALSE
+  )
+  
+  observeEvent(input$uploadHeelAnnotations, {
+    heelFileInput$clear <- FALSE
+  }, priority = 1000)
+  
+  .handleHeelResultsUpload <- function() {
+    
+    if (!is.null(input$uploadHeelAnnotations$datapath) & !heelFileInput$clear) {
+      df <- read.csv(input$uploadHeelAnnotations$datapath,
+                     header = TRUE, stringsAsFactors = FALSE, as.is = TRUE)
+      for (i in 1:nrow(df)) {
+        row <- df[i,]
+        current <- .getHeelResults()[i,]
+        
+        if (row$Heel.Status %in% heelIssueTypes &
+            !is.na(row$Heel.Annotation)) {
+          if (current$ANNOTATION_AS_STRING != "Needs Review") {
+            if (row$Heel.Status != current$ANNOTATION_AS_STRING |
+                row$Heel.Annotation != current$VALUE_AS_STRING) {
+              .updateHeelAnnotation(activityAsString = row$Message, 
+                                    annotationAsString = row$Heel.Status, 
+                                    valueAsString = row$Heel.Annotation)  
+            }
+          } else {
+            .addHeelAnnotation(activityAsString = row$Message, 
+                               annotationAsString = row$Heel.Status, 
+                               valueAsString = row$Heel.Annotation)
+          }
+        }
+      }
+      
+      reset(id = "uploadHeelAnnotations")
+      heelFileInput$clear <- TRUE
+    }
+   
+  }
+  
+  output$downloadHeelResults <- downloadHandler(
+    filename = function() {
+      paste('heelResults-', Sys.Date(), '.csv', sep='')
+    },
+    content = function(con) {
+      df <- .getHeelResults()
+      
+      df <- dplyr::arrange(df, ANALYSIS_ID) %>%
+        dplyr::select(`Analysis Id` = ANALYSIS_ID,
+                      `Rule Id` = RULE_ID,
+                      `Message` = ACHILLES_HEEL_WARNING,
+                      `Record Count` = RECORD_COUNT,
+                      `Heel Status` = ANNOTATION_AS_STRING,
+                      `Heel Annotation` = VALUE_AS_STRING,
+                      `Agent` = AGENT)
+      
+      write.csv(df, con)
+    }
+  )
+  
   # WebAPI calls ----------------------------------
   
   .getCohortConceptSetConcepts <- function() {
@@ -692,6 +754,9 @@ shinyServer(function(input, output, session) {
     input$btnSubmitHeel
     input$btnDeleteHeel
     
+    
+    .handleHeelResultsUpload()
+    
     df <- .getHeelResults()
     
     df <- dplyr::arrange(df, ANALYSIS_ID) %>%
@@ -718,7 +783,7 @@ shinyServer(function(input, output, session) {
                        class = "stripe wrap compact", extensions = c("Responsive")) %>%
       formatStyle("Heel Status", #"Warning Type",
                   target = "row",
-                  backgroundColor = styleEqual(c("Non-issue", "Needs Review", "Issue"),
+                  backgroundColor = styleEqual(heelIssueTypes,
                                                c("#deffc9", "#fffedb", "#ffdbdb")))
     
     table
@@ -1404,13 +1469,23 @@ shinyServer(function(input, output, session) {
     showNotification(sprintf("New Concept Annotation added"))
   }
   
-  .addHeelAnnotation <- function() {
+  .addHeelAnnotation <- function(activityAsString = NULL,
+                                 annotationAsString = NULL, 
+                                 valueAsString = NULL) {
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
-    row_count <- input$dtHeelResults_rows_selected
-    annotationAsString <- .getHeelResults()[row_count,]$ANNOTATION_AS_STRING
-
+    if (is.null(annotationAsString)) {
+      row_count <- input$dtHeelResults_rows_selected
+      annotationAsString <- .getHeelResults()[row_count,]$ANNOTATION_AS_STRING  
+    }
+    if (is.null(valueAsString)) {
+      valueAsString <- input$heelAnnotation
+    }
+    if (is.null(activityAsString)) {
+      row_count <- input$dtHeelResults_rows_selected
+      activityAsString <- .getHeelResults()[row_count,]$ACHILLES_HEEL_WARNING
+    }
 
     metaEntityActivityId <- .getMaxId(tableName = "meta_entity_activity",
                                       fieldName = "meta_entity_activity_id") + 1
@@ -1423,7 +1498,7 @@ shinyServer(function(input, output, session) {
       entity_identifier = NA,
       activity_concept_id = 0,
       activity_type_concept_id = 0,
-      activity_as_string = .getHeelResults()[row_count,]$ACHILLES_HEEL_WARNING,
+      activity_as_string = activityAsString,
       activity_start_date = NA,
       activity_end_date = NA,
       security_concept_id = 0
@@ -1442,7 +1517,7 @@ shinyServer(function(input, output, session) {
       meta_agent_id = as.integer(input$selectAgent),
       meta_entity_activity_id = metaEntityActivityId,
       annotation_concept_id = 0,
-      annotation_as_string = input$heelStatus,
+      annotation_as_string = annotationAsString,
       annotation_type_concept_id = 0,
       security_concept_id = 0
     )
@@ -1462,7 +1537,7 @@ shinyServer(function(input, output, session) {
       meta_annotation_id = metaAnnotationId,
       value_concept_id = 0,
       value_type_concept_id = 0,
-      value_as_string = input$heelAnnotation,
+      value_as_string = valueAsString,
       value_as_number = NA,
       operator_concept_id = 0
     )
@@ -1475,15 +1550,31 @@ shinyServer(function(input, output, session) {
     showNotification(sprintf("New Heel Annotation added"))
   }
   
-  .updateHeelAnnotation <- function() {
+  .updateHeelAnnotation <- function(activityAsString = NULL,
+                                    annotationAsString = NULL, 
+                                    valueAsString = NULL) {
+    
+    if (is.null(annotationAsString)) {
+      annotationAsString <- input$heelStatus
+    }
+    if (is.null(valueAsString)) {
+      valueAsString <- input$heelAnnotation
+    }
+    
+    if (is.null(activityAsString)) {
+      row_count <- input$dtHeelResults_rows_selected
+      activityAsString <- .getHeelResults()[row_count,]$ACHILLES_HEEL_WARNING
+    }
+    
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
-    row_count <- input$dtHeelResults_rows_selected
-    activityAsString <- .getHeelResults()[row_count,]$ACHILLES_HEEL_WARNING
-    
+    cat(activityAsString)
     metaEntityActivityId <- (.getEntityActivities(subsetByAgent = FALSE) %>%
       dplyr::filter(ACTIVITY_AS_STRING == activityAsString))$META_ENTITY_ACTIVITY_ID
+    
+    
+    cat(metaEntityActivityId)
     
     metaAnnotationId <- .getAnnotations(metaEntityActivityId = metaEntityActivityId)$META_ANNOTATION_ID
     
@@ -1495,10 +1586,10 @@ shinyServer(function(input, output, session) {
                                              packageName = "CdmMetadata",
                                              resultsDatabaseSchema = resultsDatabaseSchema(),
                                              metaAgentId = input$selectAgent,
-                                             annotationAsString = input$heelStatus,
+                                             annotationAsString = annotationAsString,
                                              metaAnnotationId = metaAnnotationId,
                                              metaValueId = metaValueId,
-                                             valueAsString = input$heelAnnotation)
+                                             valueAsString = valueAsString)
     
     DatabaseConnector::executeSql(connection = connection, sql = sql)
     
