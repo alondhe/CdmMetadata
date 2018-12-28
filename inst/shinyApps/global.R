@@ -1,5 +1,6 @@
 dataPath <- file.path(getwd(), "data")
 rdsRoot <- file.path(dataPath, "achilles_concepts")
+sqlRoot <- file.path(getwd(), "sql")
 
 if (!dir.exists(dataPath)) {
   dir.create(path = dataPath, recursive = TRUE)

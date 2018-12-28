@@ -1,0 +1,19 @@
+{
+  "baseUrl": "http://api.ohdsi.org:80/WebAPI",
+  "atlasUrl": "",
+  "sources": [
+    {
+      "name": "SynPuf 2020",
+      "dbms": "postgresql",
+      "user": "postgres",
+      "password": "DaJeet$5",
+      "extraSettings": "",
+      "server": "localhost/synpuf",
+      "port": 5432,
+      "cdmDatabaseSchema": "cdm",
+      "resultsDatabaseSchema": "results",
+      "vocabDatabaseSchema": "cdm",
+      "useMppBulkLoad": "false"
+    }
+  ]
+}
