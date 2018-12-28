@@ -63,8 +63,7 @@ ui <- dashboardPage(
               h3("Site Overview"),
               helpText("View metadata about all CDM sources in the site"),
               fluidRow(
-                infoBox("Number of CDM Sources", length(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")]), 
-                        icon = icon("sitemap"), fill = TRUE),
+                infoBoxOutput(outputId = "numSources"),
                 infoBoxOutput(outputId = "numPersons"),
                 infoBoxOutput(outputId = "numHumanAgents"),
                 infoBoxOutput(outputId = "numAlgorithmAgents"),

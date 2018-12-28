@@ -1,4 +1,4 @@
-dataPath <- file.path(system.file(package = "CdmMetadata"), "data")
+dataPath <- file.path(getwd(), "data")
 rdsRoot <- file.path(dataPath, "achilles_concepts")
 
 if (!dir.exists(dataPath)) {

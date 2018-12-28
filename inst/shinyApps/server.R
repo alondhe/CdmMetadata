@@ -1264,6 +1264,12 @@ shinyServer(function(input, output, session) {
 
   # InfoBox Renders -----------------------------------------------------
   
+  output$numSources <- renderInfoBox({
+    cdmSources <- jsonlite::read_json(path = jsonPath)$sources
+    infoBox("Number of CDM Sources", 
+            length(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")]), 
+            icon = icon("sitemap"), fill = TRUE)
+  })
  
   output$numPersons <- renderInfoBox({
     df <- readRDS(file.path(rdsRoot, "totalPop.rds"))
@@ -1275,6 +1281,7 @@ shinyServer(function(input, output, session) {
   })
   
   output$numHumanAgents <- renderInfoBox({
+    cdmSources <- jsonlite::read_json(path = jsonPath)$sources
     agents <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")], function(cdmSource) {
       connectionDetails <- .getConnectionDetails(cdmSource)
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
@@ -1296,6 +1303,7 @@ shinyServer(function(input, output, session) {
   })
   
   output$numAlgorithmAgents <- renderInfoBox({
+    cdmSources <- jsonlite::read_json(path = jsonPath)$sources
     agents <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")], function(cdmSource) {
       connectionDetails <- .getConnectionDetails(cdmSource)
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
@@ -1316,6 +1324,7 @@ shinyServer(function(input, output, session) {
   })
   
   output$propTagged <- renderInfoBox({
+    cdmSources <- jsonlite::read_json(path = jsonPath)$sources
     counts <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")], function(cdmSource) {
       connectionDetails <- .getConnectionDetails(cdmSource)
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
