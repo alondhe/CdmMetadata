@@ -4,10 +4,7 @@
 \alias{launchMetadataApp}
 \title{Launches the Shiny Metadata App}
 \usage{
-launchMetadataApp(jsonPath)
-}
-\arguments{
-\item{jsonPath}{The path to the Sources JSON file}
+launchMetadataApp()
 }
 \description{
 Launches the Shiny Metadata App

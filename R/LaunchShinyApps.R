@@ -20,14 +20,11 @@
 
 
 #' Launches the Shiny Metadata App
-#' 
-#' @param jsonPath               The path to the Sources JSON file
-#' 
+#'  
 #' @export
-launchMetadataApp <- function(jsonPath) {
+launchMetadataApp <- function() {
 
   .checkShinyDeps()
-  Sys.setenv(jsonPath = jsonPath)
 
   appDir <- system.file("shinyApps", package = "CdmMetadata")
   shiny::runApp(appDir, display.mode = "normal", launch.browser = TRUE)

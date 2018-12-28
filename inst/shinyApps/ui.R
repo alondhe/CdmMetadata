@@ -13,39 +13,52 @@ ui <- dashboardPage(
                             img(src = 'ohdsi_logo_mini.png',
                                 title = "OHDSI", height = "30px"),
                             style = "padding-top:10px; padding-bottom:10px;"),
-                          class = "dropdown"),
-                  tags$li(a(href = atlasUrl, target = "_blank",
-                            img(src = 'atlas_logo.png',
-                                title = "Atlas", height = "30px"),
-                            style = "padding-top:10px; padding-bottom:10px;"),
                           class = "dropdown")),
+                  # tags$li(a(href = atlasUrl, target = "_blank",
+                  #           img(src = 'atlas_logo.png',
+                  #               title = "Atlas", height = "30px"),
+                  #           style = "padding-top:10px; padding-bottom:10px;"),
+                  #         class = "dropdown")),
   dashboardSidebar(width = "300px",
                    useShinyjs(),
-                   selectInput(inputId = "cdmSource", label = "CDM Source", choices = lapply(cdmSources, function(c) c$name), width = "250px"),
-                   conditionalPanel(condition = "input.cdmSource != 'All Sources'",
-                     selectInput(inputId = "selectAgent", label = "Select Agent", choices = c(), width = "250px"),
-                     
-                     div(style = "display:inline-block;text-align: left;",
-                         actionButton("btnAddNewAgent", label = "Add", icon = icon("plus"))),
-                     div(style = "display:inline-block;text-align: left;",
-                         actionButton("btnDeleteAgent", label = "Delete", icon = icon("minus"))),
-                     div(style = "display:inline-block;text-align: left;",
-                         actionButton("btnEditAgent", label = "Edit", icon = icon("edit")))
-                     ),
+                   div(id = "sidebarSelects",
+                       selectInput(inputId = "cdmSource", label = "CDM Source", choices = c(), width = "250px"),
+                       conditionalPanel(condition = "input.cdmSource != 'All Sources'",
+                                        selectInput(inputId = "selectAgent", label = "Select Agent", choices = c(), width = "250px"),
+                                        
+                                        div(style = "display:inline-block;text-align: left;",
+                                            actionButton("btnAddNewAgent", label = "Add", icon = icon("plus"))),
+                                        div(style = "display:inline-block;text-align: left;",
+                                            actionButton("btnDeleteAgent", label = "Delete", icon = icon("minus"))),
+                                        div(style = "display:inline-block;text-align: left;",
+                                            actionButton("btnEditAgent", label = "Edit", icon = icon("edit")))
+                       )),
     sidebarMenu(
       id = "tabs",
-      menuItem("Site Overview", tabName = "overview", icon = icon("sitemap"), selected = TRUE),
+      menuItem("Site Overview", tabName = "overview", icon = icon("sitemap")),
       menuItem("Source Provenance", tabName = "provenance", icon = icon("database")),
       menuItem("Heel Results", tabName = "heelResults", icon = icon("table")),
       menuItem("Concept Knowledge Base", tabName = "conceptKb", icon = icon("line-chart")),
       menuItem("Concept Set Knowledge Base", tabName = "conceptSetKb", icon = icon("list")),
-      menuItem("Cohort Knowledge Base", tabName = "cohortDefKb", icon = icon("globe"))
+      menuItem("Cohort Knowledge Base", tabName = "cohortDefKb", icon = icon("globe")),
+      menuItem("Configuration", tabName = "config", icon = icon("gear"), selected = TRUE)
     )
   ),
   dashboardBody(
     tags$head(
       tags$link(rel = "stylesheet", type = "text/css", href = "custom.css")),
     tabItems(
+      tabItem("config",
+              h3("Sources Configuration"),
+              helpText("Upload a sources JSON configuration file"),
+              fluidRow(
+                column(10,
+                       fileInput(inputId = "uploadSourcesJson", label = "Upload Sources JSON Config File",
+                                 multiple = FALSE,
+                                 accept = c(".json"))
+                )
+              )
+              ),
       tabItem("overview",
               h3("Site Overview"),
               helpText("View metadata about all CDM sources in the site"),

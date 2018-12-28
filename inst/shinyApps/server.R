@@ -7,6 +7,106 @@ library(shinyjs)
 library(lubridate)
 
 shinyServer(function(input, output, session) {
+  
+  # hides ---------------------------------------------------------------
+  
+  if (!file.exists(jsonPath)) {
+    shinyjs::hide(selector = "#sidebarCollapsed li a[data-value=overview]")
+    shinyjs::hide(selector = "#sidebarCollapsed li a[data-value=provenance]")
+    shinyjs::hide(selector = "#sidebarCollapsed li a[data-value=heelResults]")
+    shinyjs::hide(selector = "#sidebarCollapsed li a[data-value=conceptKb]")
+    shinyjs::hide(selector = "#sidebarCollapsed li a[data-value=conceptSetKb]")
+    shinyjs::hide(selector = "#sidebarCollapsed li a[data-value=cohortDefKb]")
+    shinyjs::hide(id = "sidebarSelects")  
+  }
+  
+  # globals ------------------------------------------------------------
+  
+  .getConnectionDetails <- function(cdmSource) {
+    if (is.null(cdmSource$user)) {
+      connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
+                                                                      server = cdmSource$server,
+                                                                      port = cdmSource$port,
+                                                                      extraSettings = cdmSource$extraSettings)
+    } else {
+      connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = cdmSource$dbms,
+                                                                      server = cdmSource$server,
+                                                                      port = cdmSource$port,
+                                                                      user = cdmSource$user,
+                                                                      password = cdmSource$password,
+                                                                      extraSettings = cdmSource$extraSettings)
+    }
+    connectionDetails  
+  }
+  
+  baseUrl <- reactive({
+    if (file.exists(jsonPath)) {
+      jsonlite::read_json(path = jsonPath)$baseUrl  
+    } else {
+      FALSE
+    }
+  })
+
+  .initSources <- function() {
+    # atlasUrl <- jsonlite::read_json(path = jsonPath)$atlasUrl
+    # 
+    # if (atlasUrl == "") {
+    #   atlasUrl <- "http://www.ohdsi.org/web/atlas"
+    # }
+    
+    cdmSources <- jsonlite::read_json(path = jsonPath)$sources
+    
+    for (cdmSource in cdmSources) {
+      rdsFile <- file.path(rdsRoot, sprintf("%s.rds", cdmSource$name))
+      connectionDetails <- .getConnectionDetails(cdmSource)
+      
+      if (!file.exists(rdsFile)) {
+        sql <- SqlRender::loadRenderTranslateSql(sqlFilename = "conceptExplore/getAchillesConcepts.sql",
+                                                 packageName = "CdmMetadata", 
+                                                 dbms = connectionDetails$dbms,
+                                                 resultsDatabaseSchema = cdmSource$resultsDatabaseSchema,
+                                                 vocabDatabaseSchema = cdmSource$vocabDatabaseSchema)
+        connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+        df <- DatabaseConnector::querySql(connection = connection, sql = sql)
+        saveRDS(object = df, file = rdsFile) 
+        DatabaseConnector::disconnect(connection = connection)
+      }
+    }
+    
+    popRds <- file.path(rdsRoot, "totalPop.rds")
+    if (!file.exists(popRds)) {
+      results <- lapply(cdmSources, function(cdmSources) {
+        connectionDetails <- .getConnectionDetails(cdmSource)
+        connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+        sql <- SqlRender::renderSql(sql = "select '@cdmSource' as cdm_source, count_value 
+                                  from @resultsDatabaseSchema.achilles_results where analysis_id = 1;",
+                                    cdmSource = cdmSource$name,
+                                    resultsDatabaseSchema = cdmSource$resultsDatabaseSchema)$sql
+        sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
+        pop <- DatabaseConnector::querySql(connection = connection, sql = sql)
+        DatabaseConnector::disconnect(connection = connection)
+        pop
+      })
+      
+      totalPop <- do.call("rbind", results)
+      saveRDS(object = totalPop, file = popRds)
+    }
+    
+    siteSource <- list(
+      list(name = "All Sources")
+    )
+    
+    cdmSources <- c(siteSource, cdmSources)
+    shinyjs::show(selector = "#sidebarCollapsed li a[data-value=overview]")
+    shinyjs::show(id = "sidebarSelects")
+    updateSelectInput(session = session, inputId = "cdmSource", choices = lapply(cdmSources, function(c) c$name))
+  }
+  
+  if (!file.exists(jsonPath)) {
+    updateTabItems(session = session, inputId = "tabs", selected = "config")
+  } else {
+    updateTabItems(session = session, inputId = "tabs", selected = "overview")
+  }
 
   # Heel Results download / upload --------------------------------------------
   
@@ -14,8 +114,32 @@ shinyServer(function(input, output, session) {
     clear = FALSE
   )
   
+  sourcesFileInput <- reactiveValues(
+    clear = FALSE
+  )
+
+  observeEvent(input$uploadSourcesJson, {
+    if (!is.null(input$uploadSourcesJson$datapath)) {
+      for (f in list.files(path = dataPath, all.files = TRUE, full.names = TRUE)) {
+        unlink(f)
+      }
+      
+      file.copy(from = input$uploadSourcesJson$datapath, to = jsonPath)
+      
+      .initSources()
+      reset(id = "uploadSourcesJson")
+      sourcesFileInput$clear <- TRUE
+      updateTabItems(session = session, inputId = "tabs", selected = "overview")
+    }
+  }, priority = 1000)
+  
+  
   observeEvent(input$uploadHeelAnnotations, {
     heelFileInput$clear <- FALSE
+  }, priority = 1000)
+  
+  observeEvent(input$uploadSourcesJson, {
+    sourcesFileInput$clear <- FALSE
   }, priority = 1000)
   
   .handleHeelResultsUpload <- function() {
@@ -76,14 +200,14 @@ shinyServer(function(input, output, session) {
     row_count <- input$dtCohortPicker_rows_selected
     cohortId <- cohortDefinitions()[row_count,]$ID
     
-    url <- sprintf("%1s/cohortdefinition/%1d", baseUrl, cohortId)
-    vocabSourceKey <- OhdsiRTools::getPriorityVocabKey(baseUrl = baseUrl)
+    url <- sprintf("%1s/cohortdefinition/%1d", baseUrl(), cohortId)
+    vocabSourceKey <- OhdsiRTools::getPriorityVocabKey(baseUrl = baseUrl())
     
     content <- httr::content(x = httr::GET(url = url))
     json <- rjson::fromJSON(content$expression)
     
     lapply(json$ConceptSets, function(j) {
-      url <- sprintf("%1s/vocabulary/%2s/resolveConceptSetExpression", baseUrl, vocabSourceKey)
+      url <- sprintf("%1s/vocabulary/%2s/resolveConceptSetExpression", baseUrl(), vocabSourceKey)
       httpheader <- c(Accept = "application/json; charset=UTF-8", `Content-Type` = "application/json")
       body <- rjson::toJSON(j$expression)
       req <- httr::POST(url, body = body, config = httr::add_headers(httpheader))
@@ -172,74 +296,94 @@ shinyServer(function(input, output, session) {
   }
   
   currentSource <- reactive({
+    req(input$cdmSource)
+    cdmSources <- jsonlite::read_json(path = jsonPath)$sources
+    siteSource <- list(
+      list(name = "All Sources")
+    )
+    cdmSources <- c(siteSource, cdmSources)
     index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
-    cdmSources[[index]]
+    cdmSources[[index]]  
   })
   
   connectionDetails <- reactive({
+    req(currentSource())
     if (input$cdmSource != "All Sources") {
       .getConnectionDetails(currentSource())
     } else {
-      NULL
+      FALSE
     }
   })
   
   resultsDatabaseSchema <- reactive({
-    if (input$cdmSource != "All Sources") {
-      currentSource()$resultsDatabaseSchema
+    if (file.exists(jsonPath)) {
+      if (input$cdmSource != "All Sources") {
+        currentSource()$resultsDatabaseSchema
+      } else {
+        FALSE
+      }
     } else {
-      NULL
+      FALSE
     }
   })
   
   cdmDatabaseSchema <- reactive({
-    if (input$cdmSource != "All Sources") {
-      currentSource()$cdmDatabaseSchema
+    if (file.exists(jsonPath)) {
+      if (input$cdmSource != "All Sources") {
+        currentSource()$cdmDatabaseSchema
+      } else {
+        FALSE
+      }
     } else {
-      NULL
+      FALSE
     }
   })
   
   vocabDatabaseSchema <- reactive({
-    if (input$cdmSource != "All Sources") {
-      currentSource()$vocabDatabaseSchema
+    if (file.exists(jsonPath)) {
+      if (input$cdmSource != "All Sources") {
+        currentSource()$vocabDatabaseSchema
+      } else {
+        FALSE
+      }
     } else {
-      NULL
+      FALSE
     }
   })
   
   achillesConcepts <- reactive({
+    req(currentSource())
     if (input$cdmSource != "All Sources") {
-      rdsFile <- file.path("data", "achilles_concepts", sprintf("%s.rds", currentSource()$name))
+      rdsFile <- file.path(rdsRoot, sprintf("%s.rds", currentSource()$name))
       readRDS(file = rdsFile)
     } else {
-      NULL
+      FALSE
     }
   })
   
   cohortDefinitions <- reactive({
     if (input$cdmSource != "All Sources") {
-      url <- sprintf("%1s/cohortdefinition", baseUrl)
+      url <- sprintf("%1s/cohortdefinition", baseUrl())
       cohorts <- httr::content(httr::GET(url))
       cohorts <- lapply(cohorts, function(c) {
         data.frame(ID = c$id, Name = c$name)
       })
       do.call("rbind", cohorts)  
     } else {
-      NULL
+      FALSE
     }
   })
 
   conceptSets <- reactive({
     if (input$cdmSource != "All Sources") {
-      url <- sprintf("%1s/conceptset", baseUrl)
+      url <- sprintf("%1s/conceptset", baseUrl())
       sets <- httr::content(httr::GET(url))
       sets <- lapply(sets, function(c) {
         data.frame(ID = c$id, Name = c$name)
       })
       do.call("rbind", sets)  
     } else {
-      NULL
+      FALSE
     }
   })
   
@@ -498,7 +642,7 @@ shinyServer(function(input, output, session) {
   }
   
   .getSourcePopulation <- function() {
-    df <- readRDS("data/totalPop.rds")
+    df <- readRDS(file.path(rdsRoot, "totalPop.rds"))
     prettyNum(df$COUNT_VALUE[df$CDM_SOURCE == currentSource()$name], big.mark = ",")
   }
   
@@ -529,9 +673,28 @@ shinyServer(function(input, output, session) {
              }, session = session)
   }
   
+  .refreshAgents <- function() {
+    df <- .getAgents()  
+    humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
+    algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
+    
+    choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
+                                                                               humans$AGENT_FIRST_NAME, sep = ", ")),
+                    `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
+    updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
+  }
+  
   # Observes ----------------------------------------------------------
   
   observe({
+    req(input$cdmSource)
+    if (input$cdmSource != "All Sources") {
+      .refreshAgents()
+    }  
+  })
+  
+  observe({
+    req(currentSource())
     if (input$tabs == "conceptKb" & currentSource()$name != "All Sources") {
       
       if (input$domainId == "") {
@@ -555,6 +718,7 @@ shinyServer(function(input, output, session) {
   })
   
   observe({
+    req(currentSource())
     input$btnSubmitHeel
     input$btnDeleteHeel
     if (currentSource()$name != "All Sources") {
@@ -601,21 +765,9 @@ shinyServer(function(input, output, session) {
     
   })
   
-  observe({
-    if (input$cdmSource != "All Sources") {
-      df <- .getAgents()  
-      humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
-      algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
-      
-      choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
-                                                                                 humans$AGENT_FIRST_NAME, sep = ", ")),
-                      `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
-      updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
-    }
-  })
-  
   
   observe({
+    req(input$cdmSource)
     if (input$cdmSource == "All Sources") {
       shinyjs::hide(selector = "#sidebarCollapsed li a[data-value=provenance]")
       shinyjs::hide(selector = "#sidebarCollapsed li a[data-value=heelResults]")  
@@ -632,22 +784,25 @@ shinyServer(function(input, output, session) {
       shinyjs::show(selector = "#sidebarCollapsed li a[data-value=conceptSetKb]")  
       shinyjs::show(selector = "#sidebarCollapsed li a[data-value=cohortDefKb]")  
       updateTabItems(session = session, inputId = "tabs", selected = "provenance")
-    }
+    }  
   })
   
   observe({
-    if (input$tabs == "overview") {
-      hide(selector = "#sidebarCollapsed li a[data-value=provenance]")
-      hide(selector = "#sidebarCollapsed li a[data-value=heelResults]")  
-      hide(selector = "#sidebarCollapsed li a[data-value=conceptKb]")  
-      hide(selector = "#sidebarCollapsed li a[data-value=conceptSetKb]")  
-      hide(selector = "#sidebarCollapsed li a[data-value=cohortDefKb]")  
-      updateSelectInput(session = session, inputId = "cdmSource", selected = "All Sources")
-      
-    } else if (input$tabs == "provenance" & input$cdmSource != "All Sources") {
-      index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
-      cdmSource <- cdmSources[[index]]
-      .createSourceOverview(cdmSource = cdmSource, parentDiv = "overviewBox", width = 12)
+    req(input$cdmSource)
+    # if (input$tabs == "overview") {
+    #   hide(selector = "#sidebarCollapsed li a[data-value=provenance]")
+    #   hide(selector = "#sidebarCollapsed li a[data-value=heelResults]")  
+    #   hide(selector = "#sidebarCollapsed li a[data-value=conceptKb]")  
+    #   hide(selector = "#sidebarCollapsed li a[data-value=conceptSetKb]")  
+    #   hide(selector = "#sidebarCollapsed li a[data-value=cohortDefKb]")  
+    #   #updateSelectInput(session = session, inputId = "cdmSource", selected = "All Sources")
+    #   
+    # } 
+    
+    if (input$tabs == "provenance" & input$cdmSource != "All Sources") {
+      # index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
+      # cdmSource <- cdmSources[[index]]
+      .createSourceOverview(cdmSource = currentSource(), parentDiv = "overviewBox", width = 12)
     }
   }) 
 
@@ -700,7 +855,7 @@ shinyServer(function(input, output, session) {
     
     if (!is.null(row_count)) {
       conceptSetId <- conceptSets()[row_count, ]$ID
-      concepts <- OhdsiRTools::getConceptSetConceptIds(baseUrl = baseUrl, 
+      concepts <- OhdsiRTools::getConceptSetConceptIds(baseUrl = baseUrl(), 
                                                        setId = conceptSetId)
       
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
@@ -878,7 +1033,7 @@ shinyServer(function(input, output, session) {
   observeEvent(eventExpr = input$dtConceptSetPicker_rows_selected, handlerExpr = {
     row_count <- input$dtConceptSetPicker_rows_selected
     conceptSetId <- conceptSets()[row_count, ]$ID
-    concepts <- OhdsiRTools::getConceptSetConceptIds(baseUrl = baseUrl, 
+    concepts <- OhdsiRTools::getConceptSetConceptIds(baseUrl = baseUrl(), 
                                                      setId = conceptSetId)
     
     output$includedConcepts <- renderText({ paste(concepts, collapse = ",") })
@@ -1008,7 +1163,6 @@ shinyServer(function(input, output, session) {
   }
   
   .getAgents <- function() {
-
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
     on.exit(DatabaseConnector::disconnect(connection = connection))
     
@@ -1112,7 +1266,7 @@ shinyServer(function(input, output, session) {
   
  
   output$numPersons <- renderInfoBox({
-    df <- readRDS("data/totalPop.rds")
+    df <- readRDS(file.path(rdsRoot, "totalPop.rds"))
     totalPop <- sum(df$COUNT_VALUE)
     infoBox(
       "Total Persons", prettyNum(totalPop, big.mark = ","), icon = icon("users"),
