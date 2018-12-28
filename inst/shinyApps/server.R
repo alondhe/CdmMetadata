@@ -41,20 +41,14 @@ shinyServer(function(input, output, session) {
   
   baseUrl <- reactive({
     if (file.exists(jsonPath)) {
-      jsonlite::read_json(path = jsonPath)$baseUrl  
+      (readRDS(jsonPath))$baseUrl  
     } else {
       FALSE
     }
   })
 
   .initSources <- function() {
-    # atlasUrl <- jsonlite::read_json(path = jsonPath)$atlasUrl
-    # 
-    # if (atlasUrl == "") {
-    #   atlasUrl <- "http://www.ohdsi.org/web/atlas"
-    # }
-    
-    cdmSources <- jsonlite::read_json(path = jsonPath)$sources
+    cdmSources <- (readRDS(jsonPath))$sources
     
     for (cdmSource in cdmSources) {
       rdsFile <- file.path(rdsRoot, sprintf("%s.rds", cdmSource$name))
@@ -125,8 +119,8 @@ shinyServer(function(input, output, session) {
         unlink(f)
       }
       
-      file.copy(from = input$uploadSourcesJson$datapath, to = jsonPath)
-      
+      json <- jsonlite::read_json(input$uploadSourcesJson$datapath)
+      saveRDS(object = json, file = jsonPath)
       .initSources()
       reset(id = "uploadSourcesJson")
       sourcesFileInput$clear <- TRUE
@@ -298,7 +292,7 @@ shinyServer(function(input, output, session) {
   
   currentSource <- reactive({
     req(input$cdmSource)
-    cdmSources <- jsonlite::read_json(path = jsonPath)$sources
+    cdmSources <- (readRDS(jsonPath))$sources
     siteSource <- list(
       list(name = "All Sources")
     )
@@ -1268,7 +1262,7 @@ shinyServer(function(input, output, session) {
   # InfoBox Renders -----------------------------------------------------
   
   output$numSources <- renderInfoBox({
-    cdmSources <- jsonlite::read_json(path = jsonPath)$sources
+    cdmSources <- (readRDS(jsonPath))$sources
     infoBox("Number of CDM Sources", 
             length(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")]), 
             icon = icon("sitemap"), fill = TRUE)
@@ -1284,7 +1278,7 @@ shinyServer(function(input, output, session) {
   })
   
   output$numHumanAgents <- renderInfoBox({
-    cdmSources <- jsonlite::read_json(path = jsonPath)$sources
+    cdmSources <- (readRDS(jsonPath))$sources
     agents <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")], function(cdmSource) {
       connectionDetails <- .getConnectionDetails(cdmSource)
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
@@ -1306,7 +1300,7 @@ shinyServer(function(input, output, session) {
   })
   
   output$numAlgorithmAgents <- renderInfoBox({
-    cdmSources <- jsonlite::read_json(path = jsonPath)$sources
+    cdmSources <- (readRDS(jsonPath))$sources
     agents <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")], function(cdmSource) {
       connectionDetails <- .getConnectionDetails(cdmSource)
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
@@ -1327,7 +1321,7 @@ shinyServer(function(input, output, session) {
   })
   
   output$propTagged <- renderInfoBox({
-    cdmSources <- jsonlite::read_json(path = jsonPath)$sources
+    cdmSources <- (readRDS(jsonPath))$sources
     counts <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")], function(cdmSource) {
       connectionDetails <- .getConnectionDetails(cdmSource)
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)

@@ -10,7 +10,7 @@ if (!dir.exists(rdsRoot)) {
   dir.create(rdsRoot, recursive = TRUE)
 }
 
-jsonPath <- file.path(dataPath, "sources.json")
+jsonPath <- file.path(dataPath, "sources.rds")
 
 domainConceptIds <- c("Condition" = 402,
                       "Procedure" = 602, "Drug" = 702, "Measurement" = 1801, "Observation" = 802)
