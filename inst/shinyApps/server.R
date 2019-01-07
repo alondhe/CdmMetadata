@@ -847,7 +847,7 @@ shinyServer(function(input, output, session) {
                        options = options,
                        selection = "single",
                        rownames = FALSE, 
-                       class = "stripe nowrap compact", extensions = c("Responsive"))
+                       class = "stripe wrap compact", extensions = c("Responsive"))
     
     table
   })
@@ -1821,7 +1821,7 @@ shinyServer(function(input, output, session) {
                                  metaEntityActivityId = metaEntityActivityId,
                                  metaAnnotationId = metaAnnotationId,
                                  metaValueId = metaValueId)$sql
-    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)
+    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
 
     DatabaseConnector::executeSql(connection = connection, sql = sql)
     
