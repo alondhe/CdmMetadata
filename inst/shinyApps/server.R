@@ -46,29 +46,39 @@ shinyServer(function(input, output, session) {
       FALSE
     }
   })
-
-  .initSources <- function() {
+  
+  .warmCaches <- function() {
     cdmSources <- (readRDS(jsonPath))$sources
     
     for (cdmSource in cdmSources) {
-      rdsFile <- file.path(rdsRoot, sprintf("%s.rds", cdmSource$name))
       connectionDetails <- .getConnectionDetails(cdmSource)
       
-      if (!file.exists(rdsFile)) {
-        sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "conceptExplore/getAchillesConcepts.sql"))
-        sql <- SqlRender::renderSql(sql = sql, 
-                                     resultsDatabaseSchema = cdmSource$resultsDatabaseSchema,
-                                     vocabDatabaseSchema = cdmSource$vocabDatabaseSchema)$sql
-        sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
+      caches <- read.csv(file.path(csvRoot, "caches.csv"), header = TRUE, as.is = TRUE, stringsAsFactors = FALSE)
+      
+      for (i in 1:nrow(caches)) {
+        if (!dir.exists(file.path(dataPath, caches[i,]$NAME))) {
+          dir.create(file.path(dataPath, caches[i,]$NAME), recursive = TRUE)
+        }
         
-        connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
-        df <- DatabaseConnector::querySql(connection = connection, sql = sql)
-        saveRDS(object = df, file = rdsFile) 
-        DatabaseConnector::disconnect(connection = connection)
+        rdsFile <- file.path(dataPath, caches[i,]$NAME, sprintf("%s.rds", cdmSource$name))
+        
+        if (!file.exists(rdsFile)) {
+          sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, caches[i,]$SQLFILE))
+          sql <- SqlRender::renderSql(sql = sql, 
+                                      resultsDatabaseSchema = cdmSource$resultsDatabaseSchema,
+                                      vocabDatabaseSchema = cdmSource$vocabDatabaseSchema, 
+                                      warnOnMissingParameters = FALSE)$sql
+          sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
+          
+          connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+          df <- DatabaseConnector::querySql(connection = connection, sql = sql)
+          saveRDS(object = df, file = rdsFile) 
+          DatabaseConnector::disconnect(connection = connection)
+        }
       }
     }
     
-    popRds <- file.path(rdsRoot, "totalPop.rds")
+    popRds <- file.path(achillesConceptsRoot, "totalPop.rds")
     if (!file.exists(popRds)) {
       results <- lapply(cdmSources, function(cdmSources) {
         connectionDetails <- .getConnectionDetails(cdmSource)
@@ -87,8 +97,14 @@ shinyServer(function(input, output, session) {
       saveRDS(object = totalPop, file = popRds)
     }
     
+    #sql <- SqlRender::renderSql("select distinct vocabulary_version from @cdmDatabaseSchema.vocabulary where vocabulary_id = 'None'")$sql
+    
+  }
+
+  .initSources <- function() {
+    
     siteSource <- list(
-      list(name = "All Sources")
+      list(name = "All Instances")
     )
     
     cdmSources <- c(siteSource, cdmSources)
@@ -100,9 +116,10 @@ shinyServer(function(input, output, session) {
   if (!file.exists(jsonPath)) {
     updateTabItems(session = session, inputId = "tabs", selected = "config")
   } else {
+    .warmCaches()
     cdmSources <- (readRDS(jsonPath))$sources
     siteSource <- list(
-      list(name = "All Sources")
+      list(name = "All Instances")
     )
     cdmSources <- c(siteSource, cdmSources)
     updateSelectInput(session = session, inputId = "cdmSource", choices = lapply(cdmSources, function(c) c$name))
@@ -187,8 +204,8 @@ shinyServer(function(input, output, session) {
                       `Rule Id` = RULE_ID,
                       `Message` = ACHILLES_HEEL_WARNING,
                       `Record Count` = RECORD_COUNT,
-                      `Heel Status` = ANNOTATION_AS_STRING,
-                      `Heel Annotation` = VALUE_AS_STRING,
+                      `Issue Status` = ANNOTATION_AS_STRING,
+                      `Issue Annotation` = VALUE_AS_STRING,
                       `Agent` = AGENT)
       
       write.csv(df, con)
@@ -260,16 +277,58 @@ shinyServer(function(input, output, session) {
     
     req(input$domainId)
     
+    achillesConcepts <- readRDS(file.path(dataPath, "achillesConcepts", sprintf("%s.rds", currentSource()$name)))
+    denoms <- readRDS(file.path(dataPath, "oneDayObs", sprintf("%s.rds", currentSource()$name)))
+    denomSelects <- apply(X = denoms, MARGIN = 1, function(row) {
+      sql <- SqlRender::renderSql(sql = "select 117 as ANALYSIS_ID,
+                                    @stratum1 as STRATUM_1,
+                                    @stratum2 as STRATUM_2, 
+                                    @stratum3 as STRATUM_3,
+                                    @stratum4 as STRATUM_4,
+                                    @stratum5 as STRATUM_5,
+                                    @countValue as COUNT_VALUE",
+                           stratum1 = row["STRATUM_1"],
+                           stratum2 = row["STRATUM_2"],
+                           stratum3 = row["STRATUM_3"],
+                           stratum4 = row["STRATUM_4"],
+                           stratum5 = row["STRATUM_5"],
+                           countValue = row["COUNT_VALUE"])$sql
+      sql <- gsub(pattern = "NA as ", replacement = "NULL as ", x = sql)
+    })
+    
     result <- tryCatch({
-      sqlFileName <- sprintf("conceptExplore/prevalenceByMonth/%s.sql",
-                             tolower(domainDf$name[domainDf == input$domainId])
-      )
-      sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, sqlFileName))
+      
+      nums <- sqldf::sqldf(SqlRender::renderSql("select * from achillesResults where analysis_id = @domainId;",
+                                                domainId = input$domainId)$sql)
+      
+      matched <- dplyr::inner_join(x = nums, y = denoms, by = c("STRATUM_2" = "STRATUM_1"))
+      matched <- matched[matched$CONCEPT_ID == input$conceptId,]
+      
+      df <- dplyr::select(matched, STRATUM_2, COUNT_VALUE.x, COUNT_VALUE.y)
+      df$COUNT_VALUE <- round(1000 * (1.0 * df$COUNT_VALUE.x / df$COUNT_VALUE.y), 5)
+      
+      # sqlFileName <- sprintf("conceptExplore/prevalenceByMonthDf/%s.sql",
+      #                        tolower(domainDf$name[domainDf$domainConceptIds == input$domainId]))
+      # sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, sqlFileName))
+      # sql <- SqlRender::renderSql(sql = sql, 
+      #                              warnOnMissingParameters = FALSE,
+      #                              denomSelects = paste(denomSelects, collapse = " union all "),
+      #                              resultsDatabaseSchema = resultsDatabaseSchema(),
+      #                              vocabDatabaseSchema = vocabDatabaseSchema(),
+      #                              conceptId = input$conceptId)$sql
+      # df <- sqldf::sqldf(sql)
+      
+      cteSelects <- apply(X = df, MARGIN = 1, function(row) {
+        SqlRender::renderSql(sql = "select @stratum2 as STRATUM_2, @countValue as COUNT_VALUE",
+                             stratum2 = row["STRATUM_2"], 
+                             countValue = row["COUNT_VALUE"])$sql
+      })
+      
+      sql <- SqlRender::readSql(file.path(sqlRoot, "conceptExplore/prevalenceByMonthDf/getPrevalenceAndMeta.sql"))
       sql <- SqlRender::renderSql(sql = sql, 
-                                   warnOnMissingParameters = FALSE,
-                                   resultsDatabaseSchema = resultsDatabaseSchema(),
-                                   vocabDatabaseSchema = vocabDatabaseSchema(),
-                                   conceptId = input$conceptId)$sql
+                                  resultsDatabaseSchema = resultsDatabaseSchema(),
+                                  conceptId = input$conceptId,
+                                  cteSelects = paste(cteSelects, collapse = " union all "))$sql
       sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
       
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
@@ -300,7 +359,7 @@ shinyServer(function(input, output, session) {
     req(input$cdmSource)
     cdmSources <- (readRDS(jsonPath))$sources
     siteSource <- list(
-      list(name = "All Sources")
+      list(name = "All Instances")
     )
     cdmSources <- c(siteSource, cdmSources)
     index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
@@ -309,7 +368,7 @@ shinyServer(function(input, output, session) {
   
   connectionDetails <- reactive({
     req(currentSource())
-    if (input$cdmSource != "All Sources") {
+    if (input$cdmSource != "All Instances") {
       .getConnectionDetails(currentSource())
     } else {
       FALSE
@@ -318,7 +377,7 @@ shinyServer(function(input, output, session) {
   
   resultsDatabaseSchema <- reactive({
     if (file.exists(jsonPath)) {
-      if (input$cdmSource != "All Sources") {
+      if (input$cdmSource != "All Instances") {
         currentSource()$resultsDatabaseSchema
       } else {
         FALSE
@@ -330,7 +389,7 @@ shinyServer(function(input, output, session) {
   
   cdmDatabaseSchema <- reactive({
     if (file.exists(jsonPath)) {
-      if (input$cdmSource != "All Sources") {
+      if (input$cdmSource != "All Instances") {
         currentSource()$cdmDatabaseSchema
       } else {
         FALSE
@@ -342,7 +401,7 @@ shinyServer(function(input, output, session) {
   
   vocabDatabaseSchema <- reactive({
     if (file.exists(jsonPath)) {
-      if (input$cdmSource != "All Sources") {
+      if (input$cdmSource != "All Instances") {
         currentSource()$vocabDatabaseSchema
       } else {
         FALSE
@@ -354,16 +413,22 @@ shinyServer(function(input, output, session) {
   
   achillesConcepts <- reactive({
     req(currentSource())
-    if (input$cdmSource != "All Sources") {
-      rdsFile <- file.path(rdsRoot, sprintf("%s.rds", currentSource()$name))
-      readRDS(file = rdsFile)
+    if (input$cdmSource != "All Instances") {
+      rdsFile <- file.path(achillesConceptsRoot, sprintf("%s.rds", currentSource()$name))
+      df <- readRDS(file = rdsFile) %>%
+        dplyr::select(ANALYSIS_ID, 
+                      STRATUM_1,
+                      CONCEPT_ID,
+                      CONCEPT_NAME) %>%
+        dplyr::distinct()
+                        
     } else {
       FALSE
     }
   })
   
   cohortDefinitions <- reactive({
-    if (input$cdmSource != "All Sources") {
+    if (input$cdmSource != "All Instances") {
       url <- sprintf("%1s/cohortdefinition", baseUrl())
       cohorts <- httr::content(httr::GET(url))
       cohorts <- lapply(cohorts, function(c) {
@@ -376,7 +441,7 @@ shinyServer(function(input, output, session) {
   })
 
   conceptSets <- reactive({
-    if (input$cdmSource != "All Sources") {
+    if (input$cdmSource != "All Instances") {
       url <- sprintf("%1s/conceptset", baseUrl())
       sets <- httr::content(httr::GET(url))
       sets <- lapply(sets, function(c) {
@@ -390,26 +455,7 @@ shinyServer(function(input, output, session) {
   
   
   # Source Queries ------------------------------------------------------
-  
-  .getConceptPrevalence <- function() {
-    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
-    on.exit(DatabaseConnector::disconnect(connection = connection))
-    
-    sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "conceptExplore/getPrevalence.sql"))
-    sql <- SqlRender::renderSql(sql = sql, 
-                                 resultsDatabaseSchema = resultsDatabaseSchema(),
-                                 conceptId = input$conceptId,
-                                 analysisId = input$domainId)$sql
-    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
 
-    df <- DatabaseConnector::querySql(connection = connection, sql = sql)
-    if (nrow(df) > 0) {
-      df$STRATUM_2 <- as.Date(paste0(df$STRATUM_2, '01'), format='%Y%m%d')  
-    }
-    
-    df
-  }
-  
   .getChartMeta <- function() {
     if (input$conceptId != "") {
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
@@ -425,20 +471,6 @@ shinyServer(function(input, output, session) {
     } else {
       data.frame()
     }
-  }
-  
-  .getObservationPeriodDates <- function(connectionDetails,
-                                         resultsDatabaseSchema) {
-    
-    sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "source/getObservationPeriods.sql"))
-    sql <- SqlRender::renderSql(sql = sql, 
-                                resultsDatabaseSchema = resultsDatabaseSchema)$sql
-    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
-    
-    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
-    on.exit(DatabaseConnector::disconnect(connection = connection))
-    
-    DatabaseConnector::querySql(connection = connection, sql = sql)
   }
   
   .getSourceDescription <- function(connectionDetails,
@@ -645,21 +677,20 @@ shinyServer(function(input, output, session) {
   }
   
   .getSourcePopulation <- function() {
-    df <- readRDS(file.path(rdsRoot, "totalPop.rds"))
+    df <- readRDS(file.path(achillesConceptsRoot, "totalPop.rds"))
     prettyNum(df$COUNT_VALUE[df$CDM_SOURCE == currentSource()$name], big.mark = ",")
   }
   
   .createSourceOverview <- function(cdmSource, parentDiv, width = 12) {
     connectionDetails <- .getConnectionDetails(cdmSource)
     
-    df <- .getObservationPeriodDates(connectionDetails,
-                                     cdmSource$resultsDatabaseSchema)
+    df <- readRDS(file.path(dataPath, "observationPeriods", sprintf("%s.rds", cdmSource$name)))
     
     df$DATE <- as.Date(paste0(df$STRATUM_1, '01'), format='%Y%m%d') 
     
     plot <- plot_ly(df, x = ~DATE, y = ~COUNT_VALUE, type = "scatter", mode = "lines+markers", 
                     source = "C") %>%
-      layout(xaxis = list(title = "Date"), yaxis = list(title = "Persons With Continuous Observation By Month"))
+      layout(xaxis = list(title = "Date", showspikes = TRUE), yaxis = list(title = "Persons With Continuous Observation By Month"))
     
     removeUI(selector = sprintf("#%s div:has(> .box)", parentDiv), session = session)
     
@@ -670,6 +701,8 @@ shinyServer(function(input, output, session) {
                                                              cdmSource$resultsDatabaseSchema)),
                                    div(h4("Start Date"), min(df$DATE)),
                                    div(h4("End Date"), max(df$DATE)),
+                                   # div(h4("CDM Version", cdmVersion)),
+                                   # div(h4("Vocab Version", vocabVersion)),
                                    div(h4("Population Count", .getSourcePopulation())),
                                    plot
                )
@@ -691,14 +724,14 @@ shinyServer(function(input, output, session) {
   
   observe({
     req(input$cdmSource)
-    if (input$cdmSource != "All Sources") {
+    if (input$cdmSource != "All Instances") {
       .refreshAgents()
     }  
   })
   
   observe({
     req(currentSource())
-    if (input$tabs == "conceptKb" & currentSource()$name != "All Sources") {
+    if (input$tabs == "conceptKb" & currentSource()$name != "All Instances") {
       
       if (input$domainId == "") {
         updateSelectInput(session = session, inputId = "domainId", choices = domainConceptIds)  
@@ -724,7 +757,7 @@ shinyServer(function(input, output, session) {
     req(currentSource())
     input$btnSubmitHeel
     input$btnDeleteHeel
-    if (currentSource()$name != "All Sources") {
+    if (currentSource()$name != "All Instances") {
       shinyjs::show(id = "tasksDropdown")
       
       sourceDesc <- .getSourceDescription(connectionDetails = connectionDetails(), 
@@ -771,7 +804,7 @@ shinyServer(function(input, output, session) {
   
   observe({
     req(input$cdmSource)
-    if (input$cdmSource == "All Sources") {
+    if (input$cdmSource == "All Instances") {
       shinyjs::hide(selector = "#sidebarCollapsed li a[data-value=provenance]")
       shinyjs::hide(selector = "#sidebarCollapsed li a[data-value=heelResults]")  
       shinyjs::hide(selector = "#sidebarCollapsed li a[data-value=conceptKb]")  
@@ -798,11 +831,11 @@ shinyServer(function(input, output, session) {
     #   hide(selector = "#sidebarCollapsed li a[data-value=conceptKb]")  
     #   hide(selector = "#sidebarCollapsed li a[data-value=conceptSetKb]")  
     #   hide(selector = "#sidebarCollapsed li a[data-value=cohortDefKb]")  
-    #   #updateSelectInput(session = session, inputId = "cdmSource", selected = "All Sources")
+    #   #updateSelectInput(session = session, inputId = "cdmSource", selected = "All Instances")
     #   
     # } 
     
-    if (input$tabs == "provenance" & input$cdmSource != "All Sources") {
+    if (input$tabs == "provenance" & input$cdmSource != "All Instances") {
       # index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
       # cdmSource <- cdmSources[[index]]
       .createSourceOverview(cdmSource = currentSource(), parentDiv = "overviewBox", width = 12)
@@ -945,8 +978,8 @@ shinyServer(function(input, output, session) {
                     `Rule Id` = RULE_ID,
                     `Message` = ACHILLES_HEEL_WARNING,
                     `Record Count` = RECORD_COUNT,
-                    `Heel Status` = ANNOTATION_AS_STRING,
-                    `Heel Annotation` = VALUE_AS_STRING,
+                    `Issue Status` = ANNOTATION_AS_STRING,
+                    `Issue Annotation` = VALUE_AS_STRING,
                     `Agent` = AGENT)
     
     options <- list(pageLength = 50,
@@ -962,7 +995,7 @@ shinyServer(function(input, output, session) {
                        selection = "single",
                        rownames = FALSE, 
                        class = "stripe wrap compact", extensions = c("Responsive")) %>%
-      formatStyle("Heel Status", #"Warning Type",
+      formatStyle("Issue Status", #"Warning Type",
                   target = "row",
                   backgroundColor = styleEqual(heelIssueTypes,
                                                c("#deffc9", "#fffedb", "#ffdbdb")))
@@ -1270,12 +1303,12 @@ shinyServer(function(input, output, session) {
   output$numSources <- renderInfoBox({
     cdmSources <- (readRDS(jsonPath))$sources
     infoBox("Number of CDM Sources", 
-            length(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")]), 
+            length(cdmSources[sapply(cdmSources, function(c) c$name != "All Instances")]), 
             icon = icon("sitemap"), fill = TRUE)
   })
  
   output$numPersons <- renderInfoBox({
-    df <- readRDS(file.path(rdsRoot, "totalPop.rds"))
+    df <- readRDS(file.path(achillesConceptsRoot, "totalPop.rds"))
     totalPop <- sum(df$COUNT_VALUE)
     infoBox(
       "Total Persons", prettyNum(totalPop, big.mark = ","), icon = icon("users"),
@@ -1285,7 +1318,7 @@ shinyServer(function(input, output, session) {
   
   output$numHumanAgents <- renderInfoBox({
     cdmSources <- (readRDS(jsonPath))$sources
-    agents <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")], function(cdmSource) {
+    agents <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Instances")], function(cdmSource) {
       connectionDetails <- .getConnectionDetails(cdmSource)
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
       sql <- SqlRender::renderSql(sql = "select agent_first_name, agent_last_name 
@@ -1307,7 +1340,7 @@ shinyServer(function(input, output, session) {
   
   output$numAlgorithmAgents <- renderInfoBox({
     cdmSources <- (readRDS(jsonPath))$sources
-    agents <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")], function(cdmSource) {
+    agents <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Instances")], function(cdmSource) {
       connectionDetails <- .getConnectionDetails(cdmSource)
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
       sql <- SqlRender::renderSql(sql = "select agent_algorithm 
@@ -1328,7 +1361,7 @@ shinyServer(function(input, output, session) {
   
   output$propTagged <- renderInfoBox({
     cdmSources <- (readRDS(jsonPath))$sources
-    counts <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")], function(cdmSource) {
+    counts <- lapply(cdmSources[sapply(cdmSources, function(c) c$name != "All Instances")], function(cdmSource) {
       connectionDetails <- .getConnectionDetails(cdmSource)
       connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
       sql <- SqlRender::renderSql(sql = "select count(*) from @resultsDatabaseSchema.meta_entity_activity;",
@@ -1339,7 +1372,7 @@ shinyServer(function(input, output, session) {
       as.integer(count > 0)
     })
     
-    prop <- sum(unlist(counts)) / length(cdmSources[sapply(cdmSources, function(c) c$name != "All Sources")])
+    prop <- sum(unlist(counts)) / length(cdmSources[sapply(cdmSources, function(c) c$name != "All Instances")])
     
     infoBox(
       "Proportion of Sources with Metadata", prop * 100.00, icon = icon("percent"),
@@ -1450,7 +1483,7 @@ shinyServer(function(input, output, session) {
   
   observeEvent(eventExpr = input$btnSubmitHeel, handlerExpr = {
     if (input$heelStatus == "Needs Review" | input$heelAnnotation == "") {
-      showNotification(ui = "Please change Heel Status and add Annotation", type = "error")
+      showNotification(ui = "Please change Issue Status and add Annotation", type = "error")
     } else {
       row_count <- input$dtHeelResults_rows_selected
       newAnnotation <- .getHeelResults()[row_count,]$ANNOTATION_AS_STRING == "Needs Review"

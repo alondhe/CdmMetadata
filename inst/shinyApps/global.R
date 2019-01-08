@@ -1,13 +1,10 @@
 dataPath <- file.path(getwd(), "data")
-rdsRoot <- file.path(dataPath, "achilles_concepts")
+achillesConceptsRoot <- file.path(dataPath, "achillesConcepts")
 sqlRoot <- file.path(getwd(), "sql")
+csvRoot <- file.path(getwd(), "csv")
 
 if (!dir.exists(dataPath)) {
   dir.create(path = dataPath, recursive = TRUE)
-}
-
-if (!dir.exists(rdsRoot)) {
-  dir.create(rdsRoot, recursive = TRUE)
 }
 
 jsonPath <- file.path(dataPath, "sources.rds")
