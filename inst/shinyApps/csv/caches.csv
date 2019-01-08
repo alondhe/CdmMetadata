@@ -1,0 +1,4 @@
+NAME,SQLFILE
+achillesConcepts,conceptExplore/getAchillesConcepts.sql
+observationPeriods,source/getObservationPeriods.sql
+oneDayObs,source/getOneDayObs.sql

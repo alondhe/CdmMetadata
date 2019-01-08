@@ -22,8 +22,8 @@ ui <- dashboardPage(
   dashboardSidebar(width = "300px",
                    useShinyjs(),
                    div(id = "sidebarSelects",
-                       selectInput(inputId = "cdmSource", label = "CDM Source", choices = c(), width = "250px"),
-                       conditionalPanel(condition = "input.cdmSource != 'All Sources'",
+                       selectInput(inputId = "cdmSource", label = "CDM Instance", choices = c(), width = "250px"),
+                       conditionalPanel(condition = "input.cdmSource != 'All Instances'",
                                         selectInput(inputId = "selectAgent", label = "Select Agent", choices = c(), width = "250px"),
                                         
                                         div(style = "display:inline-block;text-align: left;",
