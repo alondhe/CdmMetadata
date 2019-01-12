@@ -54,6 +54,14 @@ shinyServer(function(input, output, session) {
   })
   
   .warmCaches <- function() {
+    
+    showModal(
+      modalDialog(size = "m",
+                  title = "Warming Achilles caches",
+                  "Warming Achilles caches in order to serve up metadata faster"
+      )
+    )
+    
     cdmSources <- (readRDS(jsonPath))$sources
     
     for (cdmSource in cdmSources) {
@@ -139,6 +147,7 @@ shinyServer(function(input, output, session) {
       saveRDS(object = totalPop, file = popRds)
     }
     
+    removeModal(session = session)
     #sql <- SqlRender::renderSql("select distinct vocabulary_version from @cdmDatabaseSchema.vocabulary where vocabulary_id = 'None'")$sql
     
   }
