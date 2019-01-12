@@ -1,3 +1,4 @@
+library(ffbase)
 library(shiny)
 library(DT)
 library(magrittr)
@@ -7,7 +8,12 @@ library(shinyjs)
 library(lubridate)
 
 shinyServer(function(input, output, session) {
-  
+
+  if (!dir.exists(file.path(dataPath, "ff"))) {
+    dir.create(file.path(dataPath, "ff"))
+  }
+  options('fftempdir' = file.path(dataPath, "ff"))
+    
   # hides ---------------------------------------------------------------
   
   if (!file.exists(jsonPath)) {
@@ -48,37 +54,81 @@ shinyServer(function(input, output, session) {
   })
   
   .warmCaches <- function() {
+    
+    showModal(
+      modalDialog(size = "m",
+                  title = "Warming Achilles caches",
+                  "Warming Achilles caches in order to serve up metadata faster"
+      )
+    )
+    
     cdmSources <- (readRDS(jsonPath))$sources
     
     for (cdmSource in cdmSources) {
       connectionDetails <- .getConnectionDetails(cdmSource)
       
-      caches <- read.csv(file.path(csvRoot, "caches.csv"), header = TRUE, as.is = TRUE, stringsAsFactors = FALSE)
+      ffDir <- file.path(dataPath, "achillesConcepts", cdmSource$name)
+      if (!dir.exists(file.path(dataPath, "achillesConcepts"))) {
+        dir.create(file.path(dataPath, "achillesConcepts"), recursive = TRUE)
+      }
       
-      for (i in 1:nrow(caches)) {
-        if (!dir.exists(file.path(dataPath, caches[i,]$NAME))) {
-          dir.create(file.path(dataPath, caches[i,]$NAME), recursive = TRUE)
-        }
+      if (!dir.exists(ffDir)) {
+        sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "conceptExplore/getAchillesConcepts.sql"))
+        sql <- SqlRender::renderSql(sql = sql, 
+                                    resultsDatabaseSchema = cdmSource$resultsDatabaseSchema,
+                                    vocabDatabaseSchema = cdmSource$vocabDatabaseSchema, 
+                                    warnOnMissingParameters = FALSE)$sql
+        sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
         
-        rdsFile <- file.path(dataPath, caches[i,]$NAME, sprintf("%s.rds", cdmSource$name))
+        connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+        achillesConcepts <- DatabaseConnector::querySql.ffdf(connection = connection, sql = sql)
         
-        if (!file.exists(rdsFile)) {
-          sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, caches[i,]$SQLFILE))
-          sql <- SqlRender::renderSql(sql = sql, 
-                                      resultsDatabaseSchema = cdmSource$resultsDatabaseSchema,
-                                      vocabDatabaseSchema = cdmSource$vocabDatabaseSchema, 
-                                      warnOnMissingParameters = FALSE)$sql
-          sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
-          
-          connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
-          df <- DatabaseConnector::querySql(connection = connection, sql = sql)
-          saveRDS(object = df, file = rdsFile) 
-          DatabaseConnector::disconnect(connection = connection)
-        }
+        ffbase::save.ffdf(achillesConcepts, dir = ffDir)
+        DatabaseConnector::disconnect(connection = connection)
+      }
+      
+      ffDir <- file.path(dataPath, "observationPeriods", cdmSource$name)
+      if (!dir.exists(file.path(dataPath, "observationPeriods"))) {
+        dir.create(file.path(dataPath, "observationPeriods"), recursive = TRUE)
+      }
+      
+      if (!dir.exists(ffDir)) {
+        sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "source/getObservationPeriods.sql"))
+        sql <- SqlRender::renderSql(sql = sql, 
+                                    resultsDatabaseSchema = cdmSource$resultsDatabaseSchema,
+                                    vocabDatabaseSchema = cdmSource$vocabDatabaseSchema, 
+                                    warnOnMissingParameters = FALSE)$sql
+        sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
+        
+        connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+        observationPeriods <- DatabaseConnector::querySql.ffdf(connection = connection, sql = sql)
+        
+        ffbase::save.ffdf(observationPeriods, dir = ffDir)
+        DatabaseConnector::disconnect(connection = connection)
+      }
+      
+      ffDir <- file.path(dataPath, "oneDayObs", cdmSource$name)
+      if (!dir.exists(file.path(dataPath, "oneDayObs"))) {
+        dir.create(file.path(dataPath, "oneDayObs"), recursive = TRUE)
+      }
+      
+      if (!dir.exists(ffDir)) {
+        sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "source/getOneDayObs.sql"))
+        sql <- SqlRender::renderSql(sql = sql, 
+                                    resultsDatabaseSchema = cdmSource$resultsDatabaseSchema,
+                                    vocabDatabaseSchema = cdmSource$vocabDatabaseSchema, 
+                                    warnOnMissingParameters = FALSE)$sql
+        sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
+        
+        connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+        oneDayObs <- DatabaseConnector::querySql.ffdf(connection = connection, sql = sql)
+        
+        ffbase::save.ffdf(oneDayObs, dir = ffDir)
+        DatabaseConnector::disconnect(connection = connection)
       }
     }
     
-    popRds <- file.path(achillesConceptsRoot, "totalPop.rds")
+    popRds <- file.path(dataPath, "totalPop.rds")
     if (!file.exists(popRds)) {
       results <- lapply(cdmSources, function(cdmSources) {
         connectionDetails <- .getConnectionDetails(cdmSource)
@@ -97,6 +147,7 @@ shinyServer(function(input, output, session) {
       saveRDS(object = totalPop, file = popRds)
     }
     
+    removeModal(session = session)
     #sql <- SqlRender::renderSql("select distinct vocabulary_version from @cdmDatabaseSchema.vocabulary where vocabulary_id = 'None'")$sql
     
   }
@@ -277,8 +328,18 @@ shinyServer(function(input, output, session) {
     
     req(input$domainId)
     
-    achillesConcepts <- readRDS(file.path(dataPath, "achillesConcepts", sprintf("%s.rds", currentSource()$name)))
-    denoms <- readRDS(file.path(dataPath, "oneDayObs", sprintf("%s.rds", currentSource()$name)))
+    #achillesConcepts <- readRDS(file.path(dataPath, "achillesConcepts", sprintf("%s.rds", currentSource()$name)))
+    if (!exists("achillesConcepts")) {
+      load.ffdf(file.path(dataPath, "achillesConcepts", currentSource()$name))
+    }
+    #achillesConcepts <- as.data.frame(achillesConcepts, stringsAsFactors = FALSE)
+    
+    #denoms <- readRDS(file.path(dataPath, "oneDayObs", sprintf("%s.rds", currentSource()$name)))
+    if (!exists("oneDayObs")) {
+      load.ffdf(file.path(dataPath, "oneDayObs", currentSource()$name))
+    }
+    denoms <- as.data.frame(oneDayObs, stringsAsFactors = FALSE)
+    
     denomSelects <- apply(X = denoms, MARGIN = 1, function(row) {
       sql <- SqlRender::renderSql(sql = "select 117 as ANALYSIS_ID,
                                     @stratum1 as STRATUM_1,
@@ -298,10 +359,13 @@ shinyServer(function(input, output, session) {
     
     result <- tryCatch({
       
-      nums <- sqldf::sqldf(SqlRender::renderSql("select * from achillesResults where analysis_id = @domainId;",
-                                                domainId = input$domainId)$sql)
+      # nums <- sqldf::sqldf(SqlRender::renderSql("select * from achillesConcepts where analysis_id = @domainId;",
+      #                                           domainId = input$domainId)$sql)
       
-      matched <- dplyr::inner_join(x = nums, y = denoms, by = c("STRATUM_2" = "STRATUM_1"))
+      nums <- subset.ffdf(x = achillesConcepts, subset = ANALYSIS_ID == input$domainId)
+      
+      matched <- dplyr::inner_join(x = as.data.frame(nums, stringsAsFactors = FALSE), 
+                                   y = denoms, by = c("STRATUM_2" = "STRATUM_1"))
       matched <- matched[matched$CONCEPT_ID == input$conceptId,]
       
       df <- dplyr::select(matched, STRATUM_2, COUNT_VALUE.x, COUNT_VALUE.y)
@@ -411,21 +475,23 @@ shinyServer(function(input, output, session) {
     }
   })
   
-  achillesConcepts <- reactive({
-    req(currentSource())
-    if (input$cdmSource != "All Instances") {
-      rdsFile <- file.path(achillesConceptsRoot, sprintf("%s.rds", currentSource()$name))
-      df <- readRDS(file = rdsFile) %>%
-        dplyr::select(ANALYSIS_ID, 
-                      STRATUM_1,
-                      CONCEPT_ID,
-                      CONCEPT_NAME) %>%
-        dplyr::distinct()
-                        
-    } else {
-      FALSE
-    }
-  })
+  # achillesConcepts <- reactive({
+  #   req(currentSource())
+  #   if (input$cdmSource != "All Instances") {
+  #     #rdsFile <- file.path(achillesConceptsRoot, sprintf("%s.rds", currentSource()$name))
+  #     load.ffdf(file.path(dataPath, "achillesConcepts", currentSource()$name))
+  #     df <- as.data.frame(achillesConcepts, stringsAsFactors = FALSE) %>%
+  #     #df <- readRDS(file = rdsFile) %>%
+  #       dplyr::select(ANALYSIS_ID, 
+  #                     STRATUM_1,
+  #                     CONCEPT_ID,
+  #                     CONCEPT_NAME) %>%
+  #       dplyr::distinct()
+  #                       
+  #   } else {
+  #     FALSE
+  #   }
+  # })
   
   cohortDefinitions <- reactive({
     if (input$cdmSource != "All Instances") {
@@ -677,14 +743,16 @@ shinyServer(function(input, output, session) {
   }
   
   .getSourcePopulation <- function() {
-    df <- readRDS(file.path(achillesConceptsRoot, "totalPop.rds"))
+    df <- readRDS(file.path(dataPath, "totalPop.rds"))
     prettyNum(df$COUNT_VALUE[df$CDM_SOURCE == currentSource()$name], big.mark = ",")
   }
   
   .createSourceOverview <- function(cdmSource, parentDiv, width = 12) {
     connectionDetails <- .getConnectionDetails(cdmSource)
     
-    df <- readRDS(file.path(dataPath, "observationPeriods", sprintf("%s.rds", cdmSource$name)))
+    #df <- readRDS(file.path(dataPath, "observationPeriods", sprintf("%s.rds", cdmSource$name)))
+    load.ffdf(file.path(dataPath, "observationPeriods", cdmSource$name))
+    df <- as.data.frame(observationPeriods, stringsAsFactors = FALSE)
     
     df$DATE <- as.Date(paste0(df$STRATUM_1, '01'), format='%Y%m%d') 
     
@@ -932,20 +1000,22 @@ shinyServer(function(input, output, session) {
   })
   
   output$dtTemporalEvent <- renderDataTable(expr = {
+    
+    req(input$conceptId)
     input$btnAddTemporalEvent
     input$btnEditTemporalEvent
     input$btnConfirmDeleteTempEvent
-    
+
     df <- associatedTempEvents()
-    
+
     if (nrow(df) > 0) {
-      metaDataTable <- dplyr::select(df, 
+      metaDataTable <- dplyr::select(df,
                                      `Date` = DATE,
                                      `Temporal Event` = VALUE_AS_STRING)
     } else {
       metaDataTable <- data.frame()
     }
-    
+
     options <- list(pageLength = 10,
                     searching = TRUE,
                     lengthChange = FALSE,
@@ -953,14 +1023,14 @@ shinyServer(function(input, output, session) {
                     paging = TRUE,
                     scrollY = '15vh')
     selection <- list(mode = "single", target = "row")
-    
+
     table <- datatable(metaDataTable,
                        options = options,
                        selection = "single",
-                       rownames = FALSE, 
+                       rownames = FALSE,
                        class = "stripe nowrap compact", extensions = c("Responsive"))
-    
-    table  
+
+    table
   })
   
   output$dtHeelResults <- renderDataTable(expr = {
@@ -1295,6 +1365,7 @@ shinyServer(function(input, output, session) {
   
 
   output$conceptKbPlot <- renderPlotly({
+    req(input$conceptId)
     .refreshConceptPlot()
   })  
 
@@ -1308,7 +1379,7 @@ shinyServer(function(input, output, session) {
   })
  
   output$numPersons <- renderInfoBox({
-    df <- readRDS(file.path(achillesConceptsRoot, "totalPop.rds"))
+    df <- readRDS(file.path(dataPath, "totalPop.rds"))
     totalPop <- sum(df$COUNT_VALUE)
     infoBox(
       "Total Persons", prettyNum(totalPop, big.mark = ","), icon = icon("users"),
@@ -1383,8 +1454,17 @@ shinyServer(function(input, output, session) {
   # Observe Events ------------------------------------------------------
   
   observeEvent(eventExpr = input$domainId, handlerExpr = {
-    selected <- achillesConcepts()[achillesConcepts()$ANALYSIS_ID == input$domainId,]
-    choices <- setNames(as.integer(selected$CONCEPT_ID), 
+    req(currentSource())
+    
+    load.ffdf(file.path(dataPath, "achillesConcepts", currentSource()$name))
+    selected <- subset.ffdf(achillesConcepts, subset = ANALYSIS_ID == input$domainId)
+    selected <- as.data.frame(selected, stringsAsFactors = FALSE) %>%
+      dplyr::select(CONCEPT_ID,
+                    CONCEPT_NAME) %>%
+      dplyr::distinct()
+    
+    # selected <- achillesConcepts()[achillesConcepts()$ANALYSIS_ID == input$domainId,]
+    choices <- setNames(as.integer(selected$CONCEPT_ID),
                         paste(selected$CONCEPT_ID, as.character(selected$CONCEPT_NAME), sep = " - "))
     updateSelectInput(session = session, inputId = "conceptId", choices = choices) 
   })
