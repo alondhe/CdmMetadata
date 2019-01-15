@@ -14,11 +14,6 @@ ui <- dashboardPage(
                                 title = "OHDSI", height = "30px"),
                             style = "padding-top:10px; padding-bottom:10px;"),
                           class = "dropdown")),
-                  # tags$li(a(href = atlasUrl, target = "_blank",
-                  #           img(src = 'atlas_logo.png',
-                  #               title = "Atlas", height = "30px"),
-                  #           style = "padding-top:10px; padding-bottom:10px;"),
-                  #         class = "dropdown")),
   dashboardSidebar(width = "300px",
                    useShinyjs(),
                    div(id = "sidebarSelects",
@@ -85,20 +80,22 @@ ui <- dashboardPage(
                 box(width = 3, selectInput(inputId = "domainId", label = "Domain", selectize = TRUE,
                                            choices = c()),
                     selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px", selectize = TRUE,
-                                choices = c()),
+                                choices = c())
+                ),
+                box(width = 6, 
+                    plotlyOutput(outputId = "conceptKbPlot")  %>% withSpinner(color = spinnerColor) 
+                ),
+                box(width = 3,
                     selectInput(inputId = "conceptStartDate", label = "Select Date", choices = c()),
                     textAreaInput(inputId = "temporalEventValue", label = "Temporal Event Description", 
                                   placeholder = "Enter a description of the temporal event connected to this concept at the above date"),
                     actionButton(inputId = "btnAddTemporalEvent", label = "Add", icon = icon("check")),
                     actionButton(inputId = "btnEditTemporalEvent", label = "Edit", icon = icon("edit")),
-                    actionButton(inputId = "btnDeleteTemporalEvent", label = "Delete", icon = icon("minus"))),
-                box(width = 9, 
-                    plotlyOutput(outputId = "conceptKbPlot") %>% withSpinner(color = spinnerColor) 
-                )    
+                    actionButton(inputId = "btnDeleteTemporalEvent", label = "Delete", icon = icon("minus")))
               ),
               fluidRow(
                 box(width = 12,
-                    DT::dataTableOutput(outputId = "dtTemporalEvent") %>% withSpinner(color="#0dc5c1")) 
+                    DT::dataTableOutput(outputId = "dtTemporalEvent")) #%>% withSpinner(color="#0dc5c1")) 
               )
               ),
       tabItem("heelResults",

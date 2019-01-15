@@ -1,6 +1,9 @@
 select distinct 
+  A.analysis_id, 
+  A.stratum_1, 
+  A.stratum_2, 
+  A.count_value, 
   B.concept_id,
-  A.analysis_id,
   B.concept_name
 from @resultsDatabaseSchema.achilles_results A
 join @vocabDatabaseSchema.concept B on cast(stratum_1 as integer) = B.concept_id

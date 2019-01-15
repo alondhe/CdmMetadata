@@ -87,6 +87,26 @@ shinyServer(function(input, output, session) {
         DatabaseConnector::disconnect(connection = connection)
       }
       
+      ffDir <- file.path(dataPath, "achillesResults", cdmSource$name)
+      if (!dir.exists(file.path(dataPath, "achillesResults"))) {
+        dir.create(file.path(dataPath, "achillesResults"), recursive = TRUE)
+      }
+      
+      if (!dir.exists(ffDir)) {
+        sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, "conceptExplore/getAchillesResults.sql"))
+        sql <- SqlRender::renderSql(sql = sql, 
+                                    resultsDatabaseSchema = cdmSource$resultsDatabaseSchema,
+                                    vocabDatabaseSchema = cdmSource$vocabDatabaseSchema, 
+                                    warnOnMissingParameters = FALSE)$sql
+        sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails$dbms)$sql
+        
+        connection <- DatabaseConnector::connect(connectionDetails = connectionDetails)
+        achillesResults <- DatabaseConnector::querySql.ffdf(connection = connection, sql = sql)
+        
+        ffbase::save.ffdf(achillesResults, dir = ffDir)
+        DatabaseConnector::disconnect(connection = connection)
+      }
+      
       ffDir <- file.path(dataPath, "observationPeriods", cdmSource$name)
       if (!dir.exists(file.path(dataPath, "observationPeriods"))) {
         dir.create(file.path(dataPath, "observationPeriods"), recursive = TRUE)
@@ -290,6 +310,62 @@ shinyServer(function(input, output, session) {
     })
   }
   
+  .refreshPlotAndTable <- function() {
+    showModal(
+      modalDialog(title = "Loading Temporal Event Metadata", size = "m", 
+                  "Loading Temporal Event Metadata...")
+    )
+    
+    conceptsMeta <- conceptsMeta()
+    meta <- associatedTempEvents()
+    
+    output$conceptKbPlot <- renderPlotly({
+      .refreshConceptPlot(conceptsMeta, meta)
+    }) 
+    
+    output$dtTemporalEvent <- renderDataTable(expr = {
+      
+      metaDataTable <- dplyr::select(meta,
+                                     `Date` = DATE,
+                                     `Temporal Event` = VALUE_AS_STRING)
+      
+      options <- list(pageLength = 10,
+                      searching = TRUE,
+                      lengthChange = FALSE,
+                      ordering = TRUE,
+                      paging = TRUE,
+                      scrollY = '15vh')
+      selection <- list(mode = "single", target = "row")
+      
+      table <- datatable(metaDataTable,
+                         options = options,
+                         selection = "single",
+                         rownames = FALSE,
+                         class = "stripe nowrap compact", extensions = c("Responsive"))
+      
+      table
+    })
+    
+    if (nrow(conceptsMeta) > 0) {
+      
+      dates <- dplyr::select(conceptsMeta,
+                             DATE) %>% 
+        dplyr::distinct() %>%
+        dplyr::arrange(DATE)
+        
+      updateSelectInput(session = session, inputId = "conceptStartDate",
+                        choices = dates)
+    }
+    
+    removeModal(session = session)
+  }
+  
+  observeEvent(eventExpr = input$conceptId, handlerExpr = {
+    req(input$conceptId)
+    .refreshPlotAndTable()
+    
+  }, priority = 1000)
+  
   # CRUD buttons -----------------------------------
   
   .createCrudButtons <- function(parentDiv, crudTypes = c("Submit", "Edit", "Delete")) {
@@ -321,23 +397,16 @@ shinyServer(function(input, output, session) {
   
   # Reactives ---------------------------------------------------------------------
   
-  conceptsMeta <- function() {
+  conceptsMeta <- reactive({
     
     domainDf <- as.data.frame(domainConceptIds)
     domainDf$name <- rownames(domainDf)
     
-    req(input$domainId)
+    #req(input$domainId)
     
-    #achillesConcepts <- readRDS(file.path(dataPath, "achillesConcepts", sprintf("%s.rds", currentSource()$name)))
-    if (!exists("achillesConcepts")) {
-      load.ffdf(file.path(dataPath, "achillesConcepts", currentSource()$name))
-    }
-    #achillesConcepts <- as.data.frame(achillesConcepts, stringsAsFactors = FALSE)
+    load.ffdf(file.path(dataPath, "achillesResults", currentSource()$name))
+    load.ffdf(file.path(dataPath, "oneDayObs", currentSource()$name))
     
-    #denoms <- readRDS(file.path(dataPath, "oneDayObs", sprintf("%s.rds", currentSource()$name)))
-    if (!exists("oneDayObs")) {
-      load.ffdf(file.path(dataPath, "oneDayObs", currentSource()$name))
-    }
     denoms <- as.data.frame(oneDayObs, stringsAsFactors = FALSE)
     
     denomSelects <- apply(X = denoms, MARGIN = 1, function(row) {
@@ -359,28 +428,14 @@ shinyServer(function(input, output, session) {
     
     result <- tryCatch({
       
-      # nums <- sqldf::sqldf(SqlRender::renderSql("select * from achillesConcepts where analysis_id = @domainId;",
-      #                                           domainId = input$domainId)$sql)
-      
-      nums <- subset.ffdf(x = achillesConcepts, subset = ANALYSIS_ID == input$domainId)
+      nums <- subset.ffdf(x = achillesResults, subset = CONCEPT_ID == input$conceptId)
       
       matched <- dplyr::inner_join(x = as.data.frame(nums, stringsAsFactors = FALSE), 
                                    y = denoms, by = c("STRATUM_2" = "STRATUM_1"))
-      matched <- matched[matched$CONCEPT_ID == input$conceptId,]
       
       df <- dplyr::select(matched, STRATUM_2, COUNT_VALUE.x, COUNT_VALUE.y)
       df$COUNT_VALUE <- round(1000 * (1.0 * df$COUNT_VALUE.x / df$COUNT_VALUE.y), 5)
       
-      # sqlFileName <- sprintf("conceptExplore/prevalenceByMonthDf/%s.sql",
-      #                        tolower(domainDf$name[domainDf$domainConceptIds == input$domainId]))
-      # sql <- SqlRender::readSql(sourceFile = file.path(sqlRoot, sqlFileName))
-      # sql <- SqlRender::renderSql(sql = sql, 
-      #                              warnOnMissingParameters = FALSE,
-      #                              denomSelects = paste(denomSelects, collapse = " union all "),
-      #                              resultsDatabaseSchema = resultsDatabaseSchema(),
-      #                              vocabDatabaseSchema = vocabDatabaseSchema(),
-      #                              conceptId = input$conceptId)$sql
-      # df <- sqldf::sqldf(sql)
       
       cteSelects <- apply(X = df, MARGIN = 1, function(row) {
         SqlRender::renderSql(sql = "select @stratum2 as STRATUM_2, @countValue as COUNT_VALUE",
@@ -408,16 +463,15 @@ shinyServer(function(input, output, session) {
     })
     
     result
-  }
+  })
   
-  associatedTempEvents <- function() {
-    df <- conceptsMeta()
-    if (nrow(df) > 0) {
-      df[!is.na(df$VALUE_AS_STRING),]  
+  associatedTempEvents <- reactive({
+    if (nrow(conceptsMeta()) > 0) {
+      conceptsMeta()[!is.na(conceptsMeta()$VALUE_AS_STRING),]  
     } else {
       data.frame()
     }
-  }
+  })
   
   currentSource <- reactive({
     req(input$cdmSource)
@@ -474,24 +528,6 @@ shinyServer(function(input, output, session) {
       FALSE
     }
   })
-  
-  # achillesConcepts <- reactive({
-  #   req(currentSource())
-  #   if (input$cdmSource != "All Instances") {
-  #     #rdsFile <- file.path(achillesConceptsRoot, sprintf("%s.rds", currentSource()$name))
-  #     load.ffdf(file.path(dataPath, "achillesConcepts", currentSource()$name))
-  #     df <- as.data.frame(achillesConcepts, stringsAsFactors = FALSE) %>%
-  #     #df <- readRDS(file = rdsFile) %>%
-  #       dplyr::select(ANALYSIS_ID, 
-  #                     STRATUM_1,
-  #                     CONCEPT_ID,
-  #                     CONCEPT_NAME) %>%
-  #       dplyr::distinct()
-  #                       
-  #   } else {
-  #     FALSE
-  #   }
-  # })
   
   cohortDefinitions <- reactive({
     if (input$cdmSource != "All Instances") {
@@ -626,9 +662,7 @@ shinyServer(function(input, output, session) {
                                    data = value, 
                                    dropTableIfExists = F, createTable = F)
     
-    output$conceptKbPlot <- renderPlotly({
-      .refreshConceptPlot()
-    })
+    .refreshPlotAndTable()
     
     showNotification(sprintf("New Temporal Event added"))
   }
@@ -751,7 +785,8 @@ shinyServer(function(input, output, session) {
     connectionDetails <- .getConnectionDetails(cdmSource)
     
     #df <- readRDS(file.path(dataPath, "observationPeriods", sprintf("%s.rds", cdmSource$name)))
-    load.ffdf(file.path(dataPath, "observationPeriods", cdmSource$name))
+    load.ffdf(file.path(dataPath, "observationPeriods", input$cdmSource))
+    
     df <- as.data.frame(observationPeriods, stringsAsFactors = FALSE)
     
     df$DATE <- as.Date(paste0(df$STRATUM_1, '01'), format='%Y%m%d') 
@@ -803,20 +838,21 @@ shinyServer(function(input, output, session) {
       
       if (input$domainId == "") {
         updateSelectInput(session = session, inputId = "domainId", choices = domainConceptIds)  
+        .refreshConceptId(domainConceptIds[[1]])
       }
       
       # nothing in the textbox, so can't do anything
       if (input$temporalEventValue == "" | input$conceptStartDate == "") {
-        shinyjs::hide(id = "btnAddTemporalEvent")
-        shinyjs::hide(id = "btnEditTemporalEvent")
-        shinyjs::hide(id = "btnDeleteTemporalEvent")
+        shinyjs::disable(id = "btnAddTemporalEvent")
+        shinyjs::disable(id = "btnEditTemporalEvent")
+        shinyjs::disable(id = "btnDeleteTemporalEvent")
       } else if (length(input$dtTemporalEvent_rows_selected) == 0) {
-        shinyjs::show(id = "btnAddTemporalEvent")
-        shinyjs::hide(id = "btnEditTemporalEvent")
-        shinyjs::hide(id = "btnDeleteTemporalEvent")
+        shinyjs::enable(id = "btnAddTemporalEvent")
+        shinyjs::disable(id = "btnEditTemporalEvent")
+        shinyjs::disable(id = "btnDeleteTemporalEvent")
       } else {
-        shinyjs::show(id = "btnEditTemporalEvent")
-        shinyjs::show(id = "btnDeleteTemporalEvent")
+        shinyjs::enable(id = "btnEditTemporalEvent")
+        shinyjs::enable(id = "btnDeleteTemporalEvent")
       }
     }
   })
@@ -893,19 +929,8 @@ shinyServer(function(input, output, session) {
   
   observe({
     req(input$cdmSource)
-    # if (input$tabs == "overview") {
-    #   hide(selector = "#sidebarCollapsed li a[data-value=provenance]")
-    #   hide(selector = "#sidebarCollapsed li a[data-value=heelResults]")  
-    #   hide(selector = "#sidebarCollapsed li a[data-value=conceptKb]")  
-    #   hide(selector = "#sidebarCollapsed li a[data-value=conceptSetKb]")  
-    #   hide(selector = "#sidebarCollapsed li a[data-value=cohortDefKb]")  
-    #   #updateSelectInput(session = session, inputId = "cdmSource", selected = "All Instances")
-    #   
-    # } 
-    
+
     if (input$tabs == "provenance" & input$cdmSource != "All Instances") {
-      # index <- which(sapply(cdmSources, function(c) c$name == input$cdmSource))
-      # cdmSource <- cdmSources[[index]]
       .createSourceOverview(cdmSource = currentSource(), parentDiv = "overviewBox", width = 12)
     }
   }) 
@@ -999,50 +1024,18 @@ shinyServer(function(input, output, session) {
     table  
   })
   
-  output$dtTemporalEvent <- renderDataTable(expr = {
-    
-    req(input$conceptId)
-    input$btnAddTemporalEvent
-    input$btnEditTemporalEvent
-    input$btnConfirmDeleteTempEvent
-
-    df <- associatedTempEvents()
-
-    if (nrow(df) > 0) {
-      metaDataTable <- dplyr::select(df,
-                                     `Date` = DATE,
-                                     `Temporal Event` = VALUE_AS_STRING)
-    } else {
-      metaDataTable <- data.frame()
-    }
-
-    options <- list(pageLength = 10,
-                    searching = TRUE,
-                    lengthChange = FALSE,
-                    ordering = TRUE,
-                    paging = TRUE,
-                    scrollY = '15vh')
-    selection <- list(mode = "single", target = "row")
-
-    table <- datatable(metaDataTable,
-                       options = options,
-                       selection = "single",
-                       rownames = FALSE,
-                       class = "stripe nowrap compact", extensions = c("Responsive"))
-
-    table
-  })
+  
   
   output$dtHeelResults <- renderDataTable(expr = {
     
     input$btnSubmitHeel
     input$btnDeleteHeel
-    
-    
+
+
     .handleHeelResultsUpload()
-    
+
     df <- .getHeelResults()
-    
+
     df <- dplyr::arrange(df, ANALYSIS_ID) %>%
       dplyr::select(`Analysis Id` = ANALYSIS_ID,
                     `Rule Id` = RULE_ID,
@@ -1051,7 +1044,7 @@ shinyServer(function(input, output, session) {
                     `Issue Status` = ANNOTATION_AS_STRING,
                     `Issue Annotation` = VALUE_AS_STRING,
                     `Agent` = AGENT)
-    
+
     options <- list(pageLength = 50,
                     searching = TRUE,
                     lengthChange = FALSE,
@@ -1059,17 +1052,17 @@ shinyServer(function(input, output, session) {
                     paging = TRUE,
                     scrollY = '50vh')
     selection <- list(mode = "single", target = "row")
-    
+
     table <- datatable(df,
                        options = options,
                        selection = "single",
-                       rownames = FALSE, 
+                       rownames = FALSE,
                        class = "stripe wrap compact", extensions = c("Responsive")) %>%
       formatStyle("Issue Status", #"Warning Type",
                   target = "row",
                   backgroundColor = styleEqual(heelIssueTypes,
                                                c("#deffc9", "#fffedb", "#ffdbdb")))
-    
+
     table
   })
 
@@ -1232,21 +1225,20 @@ shinyServer(function(input, output, session) {
   
   # Query Metadata tables -----------------------------------------------------------------
   
-  .refreshConceptPlot <- function() {
+  .refreshConceptPlot <- function(conceptsMeta, meta) {
 
-    df <- conceptsMeta()
-    meta <- associatedTempEvents()
-
-    if (nrow(df) > 0) {
+    if (nrow(conceptsMeta) > 0) {
       if (nrow(meta) > 0) {
-        plot_ly(data = df, x = ~DATE, y = ~COUNT_VALUE, name = "Concept Prevalance",
+        plot_ly(data = conceptsMeta, x = ~DATE, y = ~COUNT_VALUE, name = "Concept Prevalance",
                 type = "scatter", mode = "lines", source = "C") %>%
           add_trace(data = meta, x = ~DATE, y = ~COUNT_VALUE, text = ~VALUE_AS_STRING, 
                     name = "Temporal Event", mode = "markers") %>%
           layout(hovermode = "closest", xaxis = list(title = "Date", showspikes = TRUE), 
                  yaxis = list(title = "Prevalence Per 1000 People", showspikes = TRUE))
+        
+        
       } else {
-        plot_ly(data = df, x = ~DATE, y = ~COUNT_VALUE, name = "Concept Prevalance",
+        plot_ly(data = conceptsMeta, x = ~DATE, y = ~COUNT_VALUE, name = "Concept Prevalance",
                 type = "scatter", mode = "lines", source = "C") %>%
           layout(xaxis = list(title = "Date"), yaxis = list(title = "Prevalence Per 1000 People"))
       }
@@ -1360,14 +1352,7 @@ shinyServer(function(input, output, session) {
     
     df
   }
-  
-  # Output Plotly Renders ---------------------------------------------------
-  
 
-  output$conceptKbPlot <- renderPlotly({
-    req(input$conceptId)
-    .refreshConceptPlot()
-  })  
 
   # InfoBox Renders -----------------------------------------------------
   
@@ -1451,39 +1436,46 @@ shinyServer(function(input, output, session) {
     )
   })
   
-  # Observe Events ------------------------------------------------------
-  
-  observeEvent(eventExpr = input$domainId, handlerExpr = {
-    req(currentSource())
+  .refreshConceptId <- function(domainId = NULL) {
     
-    load.ffdf(file.path(dataPath, "achillesConcepts", currentSource()$name))
-    selected <- subset.ffdf(achillesConcepts, subset = ANALYSIS_ID == input$domainId)
+    if (is.null(domainId)) {
+      domainId <- input$domainId
+    }
+    shinyjs::disable(id = "domainId")
+    shinyjs::disable(id = "conceptId")
+    
+    load.ffdf(file.path(dataPath, "achillesConcepts", input$cdmSource))
+    
+    selected <- subset.ffdf(achillesConcepts, subset = ANALYSIS_ID == domainId)
     selected <- as.data.frame(selected, stringsAsFactors = FALSE) %>%
-      dplyr::select(CONCEPT_ID,
-                    CONCEPT_NAME) %>%
       dplyr::distinct()
     
-    # selected <- achillesConcepts()[achillesConcepts()$ANALYSIS_ID == input$domainId,]
     choices <- setNames(as.integer(selected$CONCEPT_ID),
                         paste(selected$CONCEPT_ID, as.character(selected$CONCEPT_NAME), sep = " - "))
     updateSelectInput(session = session, inputId = "conceptId", choices = choices) 
+    
+    shinyjs::enable(id = "domainId")
+    shinyjs::enable(id = "conceptId")
+  }
+  
+  # Observe Events ------------------------------------------------------
+  
+  observeEvent(eventExpr = input$domainId, handlerExpr = {
+  # observe({
+    req(currentSource())
+    req(input$domainId)
+    
+    .refreshConceptId()
   })
   
-  observeEvent(eventExpr = input$conceptId, handlerExpr = {
-    df <- conceptsMeta()
-    if (nrow(df) > 0) {
-      updateSelectInput(session = session, inputId = "conceptStartDate", 
-                        choices = df$DATE)  
-    }
-  })
+  
   
   observeEvent(input$btnEditTemporalEvent, handlerExpr = {
     .editTemporalEvent()
     updateTextAreaInput(session = session, inputId = "temporalEventValue", value = "")
     updateTextInput(session = session, inputId = "conceptStartDate", value = "")
-    output$conceptKbPlot <- renderPlotly({
-      .refreshConceptPlot()
-    })
+    
+    .refreshPlotAndTable()
   }, priority = 1000)
   
   observeEvent(input$btnDeleteTemporalEvent, handlerExpr = {
@@ -1500,10 +1492,9 @@ shinyServer(function(input, output, session) {
     .deleteTemporalEvent()
     updateTextAreaInput(session = session, inputId = "temporalEventValue", value = "")
     updateTextInput(session = session, inputId = "conceptStartDate", value = "")
-    output$conceptKbPlot <- renderPlotly({
-      .refreshConceptPlot()
-    })
+    .refreshPlotAndTable()
   }, priority = 1000)
+  
   
   observeEvent(input$btnAddTemporalEvent, handlerExpr = {
     .addTemporalEvent()
@@ -1513,9 +1504,14 @@ shinyServer(function(input, output, session) {
   
   observeEvent(eventExpr = input$dtTemporalEvent_rows_selected, handlerExpr = {
     
+    input$btnAddTemporalEvent
+    input$btnEditTemporalEvent
+    input$btnDeleteTemporalEvent
+    
     row_count <- input$dtTemporalEvent_rows_selected
     
     df <- associatedTempEvents()
+    
     activityStartDate <- df[row_count,]$DATE
     valueAsString <- df[row_count,]$VALUE_AS_STRING
     updateTextInput(session = session, inputId = "conceptStartDate", value = activityStartDate)
@@ -1708,28 +1704,6 @@ shinyServer(function(input, output, session) {
     }
     
   })
-  
-  
-  # observeEvent(input$toggleConcepts, {
-  #   
-  #   df <- achillesConcepts()
-  #   selected <- df[df$DOMAIN_ID == input$domainId,]
-  #   
-  #   if (input$toggleConcepts) {
-  #     meta <- .getEntityActivities(FALSE)
-  #     
-  #     tempEvents <- meta$ENTITY_CONCEPT_ID[meta$ACTIVITY_AS_STRING == "Temporal Event"]
-  #     selected <- selected[selected$CONCEPT_ID %in% tempEvents,]
-  #     
-  #     choices <- setNames(as.integer(selected$CONCEPT_ID), paste(selected$CONCEPT_ID, as.character(selected$CONCEPT_NAME), sep = " - "))
-  #     
-  #   } else {
-  #     choices <- setNames(as.integer(selected$CONCEPT_ID), paste(selected$CONCEPT_ID, 
-  #                                                                as.character(selected$CONCEPT_NAME), sep = " - "))
-  #   }
-  #   
-  #   updateSelectInput(session = session, inputId = "conceptId", choices = choices)
-  # }, priority = 1)
   
 
   # Crud operations -----------------------------------------------------------
@@ -2007,47 +1981,7 @@ shinyServer(function(input, output, session) {
     }
   }
   
-  .addValue <- function(metaEntityActivityId, metaAnnotationId = NA) {
-    
-    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
-    on.exit(DatabaseConnector::disconnect(connection = connection))
-    
-    if (!is.na(metaAnnotationId)) {
-      suffix <- "Ann"
-      df <- data.frame(
-        meta_value_id = .getMaxId("meta_value", "meta_value_id") + 1,
-        value_ordinal = as.integer(input$valueOrdinalAnn),
-        meta_entity_activity_id = as.integer(metaEntityActivityId),
-        meta_annotation_id = as.integer(metaAnnotationId),
-        value_concept_id = as.integer(input$valueConceptIdAnn),
-        value_type_concept_id = as.integer(input$valueTypeConceptIdAnn),
-        value_as_string = input$valueAsStringAnn,
-        value_as_number = as.numeric(input$valueAsNumberAnn),
-        operator_concept_id = as.integer(input$operatorConceptIdAnn), stringsAsFactors = FALSE
-      )
-    } else {
-      suffix <- "EA"
-      df <- data.frame(
-        meta_value_id = .getMaxId("meta_value", "meta_value_id") + 1,
-        value_ordinal = as.integer(input$valueOrdinalEA),
-        meta_entity_activity_id = as.integer(metaEntityActivityId),
-        meta_annotation_id = as.integer(metaAnnotationId),
-        value_concept_id = as.integer(input$valueConceptIdEA),
-        value_type_concept_id = as.integer(input$valueTypeConceptIdEA),
-        value_as_string = input$valueAsStringEA,
-        value_as_number = as.numeric(input$valueAsNumberEA),
-        operator_concept_id = as.integer(input$operatorConceptIdEA), stringsAsFactors = FALSE
-      )
-    }
-      
-    DatabaseConnector::insertTable(connection = connection, 
-                                     tableName = sprintf("%s.meta_value", resultsDatabaseSchema()),
-                                     data = df, dropTableIfExists = F, createTable = F, useMppBulkLoad = F)
-      
-    showNotification(sprintf("New value added"))
-      
-    .clearTextInputs(valueTextInputs(suffix), sprintf("btnClearValue%s", suffix))
-  }
+ 
   
   .updateAgent <- function(agentFirstName, 
                            agentLastName,
@@ -2165,31 +2099,7 @@ shinyServer(function(input, output, session) {
     showNotification(sprintf("Agent deleted"))
   }
   
-  .deleteEntityActivity <- function() {
-    connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
-    on.exit(DatabaseConnector::disconnect(connection = connection))
-    
-    row_count <- input$dtEntityActivity_rows_selected
-    metaEntityActivityId <- .getEntityActivities()[row_count, ]$META_ENTITY_ACTIVITY_ID
-    
-    sql <- SqlRender::renderSql("delete from @resultsDatabaseSchema.meta_entity_activity 
-                                where meta_entity_activity_id = @metaEntityActivityId;",
-                                resultsDatabaseSchema = resultsDatabaseSchema(),
-                                metaEntityActivityId = metaEntityActivityId)$sql
-    
-    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
-    DatabaseConnector::executeSql(connection = connection, sql = sql)
-    
-    sql <- SqlRender::renderSql("delete from @resultsDatabaseSchema.meta_value
-                                where meta_entity_activity_id = @metaEntityActivityId;",
-                                resultsDatabaseSchema = resultsDatabaseSchema(),
-                                metaEntityActivityId = metaEntityActivityId)$sql
-    sql <- SqlRender::translateSql(sql = sql, targetDialect = connectionDetails()$dbms)$sql
-    DatabaseConnector::executeSql(connection = connection, sql = sql)
-    
-    showNotification(sprintf("Entity/Activity record deleted"))
-  }
-  
+
   .deleteValue <- function(metaValueId) {
     
     connection <- DatabaseConnector::connect(connectionDetails = connectionDetails())
