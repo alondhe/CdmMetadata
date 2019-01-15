@@ -6,8 +6,11 @@ library(tidyr)
 library(httr)
 library(shinyjs)
 library(lubridate)
+library(shinyWidgets)
 
 shinyServer(function(input, output, session) {
+  
+  refresh <- reactiveValues(conceptKb = FALSE)
 
   if (!dir.exists(file.path(dataPath, "ff"))) {
     dir.create(file.path(dataPath, "ff"))
@@ -310,61 +313,109 @@ shinyServer(function(input, output, session) {
     })
   }
   
-  .refreshPlotAndTable <- function() {
-    showModal(
-      modalDialog(title = "Loading Temporal Event Metadata", size = "m", 
-                  "Loading Temporal Event Metadata...")
-    )
+  output$conceptKbPlot <- renderPlotly({
+    req(input$conceptId)
     
-    conceptsMeta <- conceptsMeta()
-    meta <- associatedTempEvents()
     
-    output$conceptKbPlot <- renderPlotly({
-      .refreshConceptPlot(conceptsMeta, meta)
-    }) 
-    
-    output$dtTemporalEvent <- renderDataTable(expr = {
+    if (nrow(conceptsMeta()) > 0) {
       
-      metaDataTable <- dplyr::select(meta,
-                                     `Date` = DATE,
-                                     `Temporal Event` = VALUE_AS_STRING)
-      
-      options <- list(pageLength = 10,
-                      searching = TRUE,
-                      lengthChange = FALSE,
-                      ordering = TRUE,
-                      paging = TRUE,
-                      scrollY = '15vh')
-      selection <- list(mode = "single", target = "row")
-      
-      table <- datatable(metaDataTable,
-                         options = options,
-                         selection = "single",
-                         rownames = FALSE,
-                         class = "stripe nowrap compact", extensions = c("Responsive"))
-      
-      table
-    })
-    
-    if (nrow(conceptsMeta) > 0) {
-      
-      dates <- dplyr::select(conceptsMeta,
-                             DATE) %>% 
+      dates <- dplyr::select(conceptsMeta(),
+                             DATE) %>%
         dplyr::distinct() %>%
         dplyr::arrange(DATE)
-        
+      
       updateSelectInput(session = session, inputId = "conceptStartDate",
                         choices = dates)
     }
     
-    removeModal(session = session)
-  }
+    .refreshConceptPlot()
+  })
   
-  observeEvent(eventExpr = input$conceptId, handlerExpr = {
+  output$dtTemporalEvent <- renderDataTable(expr = {
     req(input$conceptId)
-    .refreshPlotAndTable()
-    
-  }, priority = 1000)
+    meta <- associatedTempEvents()
+
+    metaDataTable <- dplyr::select(meta,
+                                   `Date` = DATE,
+                                   `Temporal Event` = VALUE_AS_STRING)
+
+    options <- list(pageLength = 10,
+                    searching = TRUE,
+                    lengthChange = FALSE,
+                    ordering = TRUE,
+                    paging = TRUE,
+                    scrollY = '15vh')
+    selection <- list(mode = "single", target = "row")
+
+    table <- datatable(metaDataTable,
+                       options = options,
+                       selection = "single",
+                       rownames = FALSE,
+                       class = "stripe nowrap compact", extensions = c("Responsive"))
+
+    table
+  })
+  
+  
+  
+  
+  
+  
+  # .refreshPlotAndTable <- function() {
+  #   showModal(
+  #     modalDialog(title = "Loading Temporal Event Metadata", size = "m", 
+  #                 "Loading Temporal Event Metadata...")
+  #   )
+  #   
+  #   conceptsMeta <- conceptsMeta()
+  #   meta <- associatedTempEvents()
+  #   
+  #   output$conceptKbPlot <- renderPlotly({
+  #     .refreshConceptPlot(conceptsMeta, meta)
+  #   }) 
+  #   
+  #   output$dtTemporalEvent <- renderDataTable(expr = {
+  #     
+  #     metaDataTable <- dplyr::select(meta,
+  #                                    `Date` = DATE,
+  #                                    `Temporal Event` = VALUE_AS_STRING)
+  #     
+  #     options <- list(pageLength = 10,
+  #                     searching = TRUE,
+  #                     lengthChange = FALSE,
+  #                     ordering = TRUE,
+  #                     paging = TRUE,
+  #                     scrollY = '15vh')
+  #     selection <- list(mode = "single", target = "row")
+  #     
+  #     table <- datatable(metaDataTable,
+  #                        options = options,
+  #                        selection = "single",
+  #                        rownames = FALSE,
+  #                        class = "stripe nowrap compact", extensions = c("Responsive"))
+  #     
+  #     table
+  #   })
+  #   
+  #   if (nrow(conceptsMeta) > 0) {
+  #     
+  #     dates <- dplyr::select(conceptsMeta,
+  #                            DATE) %>% 
+  #       dplyr::distinct() %>%
+  #       dplyr::arrange(DATE)
+  #       
+  #     updateSelectInput(session = session, inputId = "conceptStartDate",
+  #                       choices = dates)
+  #   }
+  #   
+  #   removeModal(session = session)
+  # }
+  
+  # observeEvent(eventExpr = input$conceptId, handlerExpr = {
+  #   req(input$conceptId)
+  #   .refreshPlotAndTable()
+  #   
+  # }, priority = 1000)
   
   # CRUD buttons -----------------------------------
   
@@ -398,6 +449,8 @@ shinyServer(function(input, output, session) {
   # Reactives ---------------------------------------------------------------------
   
   conceptsMeta <- reactive({
+    
+    refresh$conceptKb
     
     domainDf <- as.data.frame(domainConceptIds)
     domainDf$name <- rownames(domainDf)
@@ -457,21 +510,24 @@ shinyServer(function(input, output, session) {
       if (nrow(df) > 0) {
         df$DATE <- as.Date(paste0(df$STRATUM_2, "01"), format = "%Y%m%d")
       }
+      refresh$conceptKb <- FALSE
       df
     }, error = function(e) {
+      refresh$conceptKb <- FALSE
       data.frame()
     })
     
     result
   })
   
-  associatedTempEvents <- reactive({
+  associatedTempEvents <- function() {
+    
     if (nrow(conceptsMeta()) > 0) {
       conceptsMeta()[!is.na(conceptsMeta()$VALUE_AS_STRING),]  
     } else {
       data.frame()
     }
-  })
+  }
   
   currentSource <- reactive({
     req(input$cdmSource)
@@ -662,7 +718,7 @@ shinyServer(function(input, output, session) {
                                    data = value, 
                                    dropTableIfExists = F, createTable = F)
     
-    .refreshPlotAndTable()
+    #.refreshPlotAndTable()
     
     showNotification(sprintf("New Temporal Event added"))
   }
@@ -850,6 +906,7 @@ shinyServer(function(input, output, session) {
         shinyjs::enable(id = "btnAddTemporalEvent")
         shinyjs::disable(id = "btnEditTemporalEvent")
         shinyjs::disable(id = "btnDeleteTemporalEvent")
+        #updateTextInput(session = session, inputId = "temporalEventValue", value = "")
       } else {
         shinyjs::enable(id = "btnEditTemporalEvent")
         shinyjs::enable(id = "btnDeleteTemporalEvent")
@@ -1225,8 +1282,12 @@ shinyServer(function(input, output, session) {
   
   # Query Metadata tables -----------------------------------------------------------------
   
-  .refreshConceptPlot <- function(conceptsMeta, meta) {
+  .refreshConceptPlot <- function() {
 
+    
+    conceptsMeta <- conceptsMeta()
+    meta <- associatedTempEvents()
+    
     if (nrow(conceptsMeta) > 0) {
       if (nrow(meta) > 0) {
         plot_ly(data = conceptsMeta, x = ~DATE, y = ~COUNT_VALUE, name = "Concept Prevalance",
@@ -1443,6 +1504,7 @@ shinyServer(function(input, output, session) {
     }
     shinyjs::disable(id = "domainId")
     shinyjs::disable(id = "conceptId")
+    showModal(modalDialog(title = "Initializing", "Initializing"))
     
     load.ffdf(file.path(dataPath, "achillesConcepts", input$cdmSource))
     
@@ -1456,6 +1518,7 @@ shinyServer(function(input, output, session) {
     
     shinyjs::enable(id = "domainId")
     shinyjs::enable(id = "conceptId")
+    removeModal(session = session)
   }
   
   # Observe Events ------------------------------------------------------
@@ -1475,38 +1538,36 @@ shinyServer(function(input, output, session) {
     updateTextAreaInput(session = session, inputId = "temporalEventValue", value = "")
     updateTextInput(session = session, inputId = "conceptStartDate", value = "")
     
-    .refreshPlotAndTable()
+    refresh$conceptKb <- TRUE
   }, priority = 1000)
   
-  observeEvent(input$btnDeleteTemporalEvent, handlerExpr = {
-    showModal(
-      modalDialog(
-        title = "Delete Temporal Event",
-        "Are you sure you want to delete this temporal event?",
-        actionButton(inputId = "btnConfirmDeleteTempEvent", label = "Yes, delete this temporal event")
-      )
-    )
+  observeEvent(input$btnDeleteTemporalEvent, {
+    confirmSweetAlert(session = session, inputId = "confirmDeleteTempEvent", 
+                    title = "Delete Temporal Event?", text = "Are you sure you want to delete this temporal event?")
   })
-  
-  observeEvent(input$btnConfirmDeleteTempEvent, handlerExpr = {
-    .deleteTemporalEvent()
-    updateTextAreaInput(session = session, inputId = "temporalEventValue", value = "")
-    updateTextInput(session = session, inputId = "conceptStartDate", value = "")
-    .refreshPlotAndTable()
-  }, priority = 1000)
+
+  observeEvent(input$confirmDeleteTempEvent, {
+    if (input$confirmDeleteTempEvent) {
+      .deleteTemporalEvent()
+      updateTextAreaInput(session = session, inputId = "temporalEventValue", value = "")
+      updateTextInput(session = session, inputId = "conceptStartDate", value = "")  
+      refresh$conceptKb <- TRUE
+    }
+  })
   
   
   observeEvent(input$btnAddTemporalEvent, handlerExpr = {
     .addTemporalEvent()
     updateTextInput(session = session, inputId = "conceptStartDate", value = "")
     updateTextAreaInput(session = session, inputId = "temporalEventValue", value = "")
+    refresh$conceptKb <- TRUE
   }, priority = 1000)
   
   observeEvent(eventExpr = input$dtTemporalEvent_rows_selected, handlerExpr = {
     
-    input$btnAddTemporalEvent
-    input$btnEditTemporalEvent
-    input$btnDeleteTemporalEvent
+    # input$btnAddTemporalEvent
+    # input$btnEditTemporalEvent
+    # input$confirmDeleteTemporalEvent
     
     row_count <- input$dtTemporalEvent_rows_selected
     
@@ -1596,25 +1657,21 @@ shinyServer(function(input, output, session) {
   
   observeEvent(input$btnDeleteAgent, handlerExpr = {
     
-    showModal(
-      modalDialog(
-        title = "Delete Agent",
-        "Are you sure you want to delete this agent?",
-        actionButton(inputId = "btnConfirmDeleteAgent", label = "Yes, delete this agent")
-      )
-    )
+    confirmSweetAlert(inputId = "confirmDeleteAgent", session = session, title = "Delete Agent?", 
+                      text = "Are you sure you want to delete this agent?")
   }, priority = 1)
   
-  observeEvent(input$btnConfirmDeleteAgent, handlerExpr = {
-    .deleteAgent(input$selectAgent)
-    df <- .getAgents()
-    humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
-    algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
-    choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
-                                                                               humans$AGENT_FIRST_NAME, sep = ", ")),
-                    `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
-    updateSelectInput(session = session, inputId = "selectAgent", choices = choices)
-    removeModal(session = session)
+  observeEvent(input$confirmDeleteAgent, handlerExpr = {
+    if (input$confirmDeleteAgent) {
+      .deleteAgent(input$selectAgent)
+      df <- .getAgents()
+      humans <- df[df$META_AGENT_CONCEPT_ID == 1000,]
+      algs <- df[df$META_AGENT_CONCEPT_ID == 2000,]
+      choices <- list(`Human` = setNames(as.integer(humans$META_AGENT_ID), paste(humans$AGENT_LAST_NAME, 
+                                                                                 humans$AGENT_FIRST_NAME, sep = ", ")),
+                      `Algorithm` = setNames(as.integer(algs$META_AGENT_ID), algs$AGENT_ALGORITHM))
+      updateSelectInput(session = session, inputId = "selectAgent", choices = choices)  
+    }
   }, priority = 1)
   
   observeEvent(input$btnEditAgent, handlerExpr = {

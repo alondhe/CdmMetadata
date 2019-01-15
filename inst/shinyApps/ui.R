@@ -95,7 +95,7 @@ ui <- dashboardPage(
               ),
               fluidRow(
                 box(width = 12,
-                    DT::dataTableOutput(outputId = "dtTemporalEvent")) #%>% withSpinner(color="#0dc5c1")) 
+                    DT::dataTableOutput(outputId = "dtTemporalEvent") %>% withSpinner(color="#0dc5c1")) 
               )
               ),
       tabItem("heelResults",
