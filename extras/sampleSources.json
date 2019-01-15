@@ -1,24 +1,14 @@
 {
+  "baseUrl": "http://api.ohdsi.org:80/WebAPI",
+  "atlasUrl": "",
   "sources": [
     {
       "name": "SynPuf",
       "dbms": "postgresql",
-      "user": "postgres",
-      "password": "",
+      "user": "someUser",
+      "password": "somePassword",
       "extraSettings": "",
       "server": "localhost/synpuf",
-      "port": 5432,
-      "cdmDatabaseSchema": "cdm",
-      "resultsDatabaseSchema": "results",
-      "vocabDatabaseSchema": "cdm"
-    },
-    {
-      "name": "Synthea",
-      "dbms": "postgresql",
-      "user": "postgres",
-      "password": "",
-      "extraSettings": "",
-      "server": "localhost/synthea",
       "port": 5432,
       "cdmDatabaseSchema": "cdm",
       "resultsDatabaseSchema": "results",
