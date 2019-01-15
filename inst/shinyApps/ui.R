@@ -56,7 +56,7 @@ ui <- dashboardPage(
               ),
       tabItem("overview",
               h3("Site Overview"),
-              helpText("View metadata about all CDM sources in the site"),
+              helpText("View aggregated metadata about all CDM instances in the site"),
               fluidRow(
                 infoBoxOutput(outputId = "numSources"),
                 infoBoxOutput(outputId = "numPersons"),
@@ -67,7 +67,7 @@ ui <- dashboardPage(
               ),
       tabItem("provenance",
               h3("Source Provenance"),
-              helpText("Create and view metadata about the selected CDM source's provenance"),
+              helpText("Create and view metadata about the selected CDM instance's provenance"),
               fluidRow(
                 div(id = "SourceDescCrud"),
                 div(id = "overviewBox")  
@@ -75,27 +75,36 @@ ui <- dashboardPage(
               ),
       tabItem("conceptKb", 
               h3("Concept Knowledge Base"),
-              helpText("Create and view known temporal events about a concept"),
+              helpText("Create and view known metadata about a concept in the selected CDM instance"),
               fluidRow(
-                box(width = 3, selectInput(inputId = "domainId", label = "Domain", selectize = TRUE,
+                box(width = 3, 
+                    h4("Select a domain and then a concept to view metadata about the concept."),
+                    selectInput(inputId = "domainId", label = "Domain", selectize = TRUE,
                                            choices = c()),
                     selectInput(inputId = "conceptId", label = "Pick a concept", width = "400px", selectize = TRUE,
                                 choices = c())
                 ),
-                box(width = 6, 
-                    plotlyOutput(outputId = "conceptKbPlot")  %>% withSpinner(color = spinnerColor) 
-                ),
-                box(width = 3,
-                    selectInput(inputId = "conceptStartDate", label = "Select Date", choices = c()),
-                    textAreaInput(inputId = "temporalEventValue", label = "Temporal Event Description", 
-                                  placeholder = "Enter a description of the temporal event connected to this concept at the above date"),
-                    actionButton(inputId = "btnAddTemporalEvent", label = "Add", icon = icon("check")),
-                    actionButton(inputId = "btnEditTemporalEvent", label = "Edit", icon = icon("edit")),
-                    actionButton(inputId = "btnDeleteTemporalEvent", label = "Delete", icon = icon("minus")))
-              ),
-              fluidRow(
-                box(width = 12,
-                    DT::dataTableOutput(outputId = "dtTemporalEvent") %>% withSpinner(color="#0dc5c1")) 
+                column(9,
+                       tabsetPanel(type = "tabs",
+                                   tabPanel("Temporal Events",
+                                            helpText("Time-based metadata about the selected concept"),
+                                            h4("Click on a point on the plot to add a temporal event. Or, click on an existing temporal event in the table below in order to edit or delete it."),
+                                            box(width = 8, 
+                                                plotlyOutput(outputId = "conceptKbPlot")  %>% withSpinner(color = spinnerColor) 
+                                            ),
+                                            box(width = 4,
+                                                selectInput(inputId = "conceptStartDate", label = "Select Date", choices = c()),
+                                                textAreaInput(inputId = "temporalEventValue", label = "Temporal Event Description", 
+                                                              placeholder = "Enter a description of the temporal event connected to this concept at the above date"),
+                                                actionButton(inputId = "btnAddTemporalEvent", label = "Add", icon = icon("check")),
+                                                actionButton(inputId = "btnEditTemporalEvent", label = "Edit", icon = icon("edit")),
+                                                actionButton(inputId = "btnDeleteTemporalEvent", label = "Delete", icon = icon("minus"))),
+                                            box(width = 12,
+                                                DT::dataTableOutput(outputId = "dtTemporalEvent") %>% withSpinner(color="#0dc5c1"))
+                                            )
+                                   )
+                       )
+                
               )
               ),
       tabItem("heelResults",
@@ -126,11 +135,12 @@ ui <- dashboardPage(
               ),
       tabItem("conceptSetKb",
               h3("Concept Set Knowledge Base"),
-              helpText("Explore known metadata about a concept set"),
+              helpText("Explore known metadata about a concept set in Atlas"),
               fluidRow(
-                column(4,
+                column(4, align = "center",
+                       h3(img(src = "atlas_logo.png", height = "100px"), "Atlas Concept Sets"),
                        DT::dataTableOutput(outputId = "dtConceptSetPicker") %>% withSpinner(color="#0dc5c1")),
-                column(8,
+                column(8, align = "center",
                        DT::dataTableOutput(outputId = "dtConceptSetMeta") %>% withSpinner(color="#0dc5c1"))
               )
               ),
@@ -138,9 +148,10 @@ ui <- dashboardPage(
               h3("Cohort Knowledge Base"),
               helpText("Explore known metadata about a cohort definition"),
               fluidRow(
-                column(5,
+                column(5, align = "center",
+                       h3(img(src = "atlas_logo.png", height = "100px"), "Atlas Cohorts"),
                        DT::dataTableOutput(outputId = "dtCohortPicker") %>% withSpinner(color="#0dc5c1")),
-                column(7,
+                column(7, align = "center",
                        actionButton(inputId = "btnGetCohortMeta", label = "Fetch Known Metadata", icon = icon("database")),
                        br(),
                        uiOutput(outputId = "knownCohortMeta")
