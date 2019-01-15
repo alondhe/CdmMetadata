@@ -177,6 +177,7 @@ shinyServer(function(input, output, session) {
 
   .initSources <- function() {
     
+    cdmSources <- (readRDS(jsonPath))$sources
     siteSource <- list(
       list(name = "All Instances")
     )
