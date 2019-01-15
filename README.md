@@ -18,10 +18,11 @@
 
 ###  Prerequisites
 
-1. A CDM database with populated CDM tables, vocab tables, and Achilles tables
-2. Read/write permission on the results schema of the CDM database
-3. Metadata tables created in the results schema (see Preparing CDMs)
-4. A JSON configuration file, as demonstrated here: [sampleSources.json](extras/sampleSources.json)
+1. A CDM database with populated CDM tables and vocab tables in the CDM schema
+2. Achilles tables in the results schema
+3. Read/write permission on the results schema of the CDM database
+4. Metadata tables created in the results schema (see Preparing CDMs)
+5. A JSON configuration file, as demonstrated here: [sampleSources.json](extras/sampleSources.json)
 
 
 ### Preparing CDMs
